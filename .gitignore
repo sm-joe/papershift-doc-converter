@@ -1,0 +1,38 @@
+# Go
+bin/
+*.test
+*.out
+coverage.out
+vendor/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+
+# Temporary conversion data
+tmp/
+*.tmp
+
+# Test artifacts
+test-results/
+coverage/
+
+# Generated files
+generated/
