@@ -2,71 +2,39 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/sm-joe/papershift-doc-converter/internal/jobs"
 )
 
-const (
-	maxUploadSize = 100 << 20 // 100 MiB
-	formFileField = "file"
-	outputField   = "output_format"
-)
-
-func (app *Application) conversionsHandler(
-	w http.ResponseWriter,
-	r *http.Request,
-) {
+func (app *Application) conversionsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	r.Body = http.MaxBytesReader(
-		w,
-		r.Body,
-		maxUploadSize,
-	)
-
-	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		http.Error(
-			w,
-			"invalid multipart request",
-			http.StatusBadRequest,
-		)
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
+		http.Error(w, "invalid multipart form", http.StatusBadRequest)
 		return
 	}
 
-	file, header, err := r.FormFile(formFileField)
+	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(
-			w,
-			"file is required",
-			http.StatusBadRequest,
-		)
+		http.Error(w, "missing file", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	outputFormat := r.FormValue(outputField)
-
+	outputFormat := r.FormValue("output_format")
 	if outputFormat == "" {
-		http.Error(
-			w,
-			"output_format is required",
-			http.StatusBadRequest,
-		)
+		http.Error(w, "missing output_format", http.StatusBadRequest)
 		return
 	}
 
 	jobID, err := newJobID()
 	if err != nil {
-		http.Error(
-			w,
-			"failed to create job",
-			http.StatusInternalServerError,
-		)
+		http.Error(w, "failed to create job id", http.StatusInternalServerError)
 		return
 	}
 
@@ -80,15 +48,20 @@ func (app *Application) conversionsHandler(
 		},
 	)
 	if err != nil {
-		http.Error(
-			w,
-			fmt.Sprintf("conversion failed: %v", err),
-			http.StatusUnprocessableEntity,
-		)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"job": response.Job,
+	app.Results.Set(jobs.Result{
+		Job:       response.Job,
+		Output:    response.Output,
+		Filename:  response.Filename,
+		ExpiresAt: time.Now().Add(10 * time.Minute),
+	})
+
+	writeJSON(w, http.StatusAccepted, map[string]interface{}{
+		"id":     response.Job.ID,
+		"status": response.Job.Status,
+		"output": "/api/v1/conversions/" + response.Job.ID + "/download",
 	})
 }

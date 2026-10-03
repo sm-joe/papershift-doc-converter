@@ -13,6 +13,7 @@ func NewHandler(app *Application) http.Handler {
 
 	mux.HandleFunc("/api/v1/formats", app.formatsHandler)
 	mux.HandleFunc("/api/v1/conversions", app.conversionsHandler)
+	mux.HandleFunc("/api/v1/conversions/", app.downloadHandler)
 
 	return mux
 }

@@ -12,22 +12,23 @@ type Application struct {
 	Formats    []formats.Format
 	Converters *converter.Registry
 	Jobs       *jobs.Service
+	Results    *jobs.Store
 }
 
 func NewApplication(workspaceRoot string) *Application {
 	converterRegistry := converter.NewRegistry()
+	converterRegistry.Register(libreoffice.New("libreoffice"))
 
-	converterRegistry.Register(
-		libreoffice.New("libreoffice"),
-	)
+	detector := &detection.Detector{}
 
 	return &Application{
 		Formats:    formats.All(),
 		Converters: converterRegistry,
 		Jobs: jobs.NewService(
 			workspaceRoot,
-			detection.New(),
+			detector,
 			converterRegistry,
 		),
+		Results: jobs.NewStore(),
 	}
 }

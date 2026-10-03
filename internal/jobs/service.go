@@ -1,7 +1,9 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"os"
@@ -39,28 +41,24 @@ type ConvertRequest struct {
 }
 
 type ConvertResponse struct {
-	Job    Job
-	Output string
+	Job      Job
+	Filename string
+	Output   []byte
 }
 
-func (s *Service) Convert(
-	ctx context.Context,
-	request ConvertRequest,
-) (ConvertResponse, error) {
+func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertResponse, error) {
+	now := time.Now()
+
 	job := Job{
 		ID:        request.JobID,
 		Status:    StatusPending,
-		CreatedAt: time.Now().UTC(),
+		CreatedAt: now,
 	}
 
-	workspace, err := CreateWorkspace(
-		s.workspaceRoot,
-		request.JobID,
-	)
+	workspace, err := CreateWorkspace(s.workspaceRoot, job.ID)
 	if err != nil {
-		return ConvertResponse{}, err
+		return ConvertResponse{}, fmt.Errorf("create workspace: %w", err)
 	}
-
 	defer workspace.Cleanup()
 
 	inputPath := filepath.Join(
@@ -69,143 +67,142 @@ func (s *Service) Convert(
 	)
 
 	if err := writeInput(inputPath, request.Input); err != nil {
-		return ConvertResponse{}, fmt.Errorf(
-			"write input: %w",
-			err,
-		)
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return ConvertResponse{
+			Job: job,
+		}, err
 	}
 
 	inputFile, err := os.Open(inputPath)
 	if err != nil {
-		return ConvertResponse{}, fmt.Errorf(
-			"open input: %w",
-			err,
-		)
-	}
+		job.Status = StatusFailed
+		job.Error = err.Error()
 
+		return ConvertResponse{
+			Job: job,
+		}, fmt.Errorf("open input: %w", err)
+	}
 	defer inputFile.Close()
 
-	inputFormat, err := s.detector.Detect(
-		request.Filename,
-		inputFile,
-	)
+	inputFormat, err := s.detector.Detect(request.Filename, inputFile)
 	if err != nil {
-		return ConvertResponse{}, fmt.Errorf(
-			"detect input format: %w",
-			err,
-		)
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return ConvertResponse{
+			Job: job,
+		}, fmt.Errorf("detect input format: %w", err)
 	}
 
 	outputFormat, ok := formats.Get(request.OutputFormat)
 	if !ok {
-		return ConvertResponse{}, fmt.Errorf(
-			"unsupported output format: %s",
-			request.OutputFormat,
-		)
+		err := fmt.Errorf("unknown output format: %s", request.OutputFormat)
+
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return ConvertResponse{
+			Job: job,
+		}, err
 	}
 
 	job.InputFormat = inputFormat
 	job.OutputFormat = outputFormat
-	job.Status = StatusProcessing
 
-	selectedConverter, err := s.converters.Find(
-		inputFormat,
-		outputFormat,
-	)
+	selectedConverter, err := s.converters.Find(inputFormat, outputFormat)
 	if err != nil {
-		return ConvertResponse{}, fmt.Errorf(
-			"find converter: %w",
-			err,
-		)
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return ConvertResponse{
+			Job: job,
+		}, err
 	}
 
 	if _, err := inputFile.Seek(0, io.SeekStart); err != nil {
-		return ConvertResponse{}, fmt.Errorf(
-			"rewind input: %w",
-			err,
-		)
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return ConvertResponse{
+			Job: job,
+		}, fmt.Errorf("rewind input: %w", err)
 	}
 
-	outputName := safeFilename(
-		replaceExtension(
-			request.Filename,
-			outputFormat.Extension,
-		),
-	)
+	job.Status = StatusProcessing
 
-	outputPath := filepath.Join(
-		workspace.Output,
-		outputName,
-	)
+	startedAt := time.Now()
+	job.StartedAt = &startedAt
 
-	outputFile, err := os.OpenFile(
-		outputPath,
-		os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
-		0600,
-	)
+	var output bytes.Buffer
+
+	_, err = selectedConverter.Convert(ctx, converter.Job{
+		InputFormat:  inputFormat,
+		OutputFormat: outputFormat,
+		Input:        inputFile,
+		Output:       &output,
+	})
 	if err != nil {
-		return ConvertResponse{}, fmt.Errorf(
-			"create output: %w",
-			err,
-		)
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return ConvertResponse{
+			Job: job,
+		}, fmt.Errorf("conversion failed: %w", err)
 	}
 
-	defer outputFile.Close()
-
-	_, err = selectedConverter.Convert(
-		ctx,
-		converter.Job{
-			InputFormat:  inputFormat,
-			OutputFormat: outputFormat,
-			Input:        inputFile,
-			Output:       outputFile,
-		},
-	)
-	if err != nil {
-		return ConvertResponse{}, fmt.Errorf(
-			"conversion failed: %w",
-			err,
-		)
-	}
-
+	completedAt := time.Now()
+	job.CompletedAt = &completedAt
 	job.Status = StatusCompleted
 
-	now := time.Now().UTC()
-	job.CompletedAt = &now
+	outputFilename := replaceExtension(
+		safeFilename(request.Filename),
+		outputFormat.Extension,
+	)
 
 	return ConvertResponse{
-		Job:    job,
-		Output: outputPath,
+		Job:      job,
+		Filename: outputFilename,
+		Output:   output.Bytes(),
 	}, nil
 }
 
 func writeInput(path string, input io.Reader) error {
-	file, err := os.OpenFile(
-		path,
-		os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
-		0600,
-	)
+	file, err := os.Create(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("create input file: %w", err)
 	}
-
 	defer file.Close()
 
-	_, err = io.Copy(file, input)
+	if _, err := io.Copy(file, input); err != nil {
+		return fmt.Errorf("write input file: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func safeFilename(name string) string {
 	return filepath.Base(name)
 }
 
-func replaceExtension(name, extension string) string {
-	base := name
+func replaceExtension(filename, extension string) string {
+	extension = "." + extension
 
-	if ext := filepath.Ext(name); ext != "" {
-		base = name[:len(name)-len(ext)]
+	ext := filepath.Ext(filename)
+	if ext == "" {
+		return filename + extension
 	}
 
-	return base + extension
+	return filename[:len(filename)-len(ext)] + extension
+}
+
+func newJobID() (string, error) {
+	var bytesID [16]byte
+
+	if _, err := rand.Read(bytesID[:]); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%x", bytesID), nil
 }
