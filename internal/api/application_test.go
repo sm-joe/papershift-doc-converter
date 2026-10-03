@@ -23,9 +23,9 @@ func TestNewApplication(t *testing.T) {
 
 	converters := app.Converters.All()
 
-	if len(converters) != 1 {
+	if len(converters) != 3 {
 		t.Fatalf(
-			"expected 1 converter, got %d",
+			"expected 3 converters, got %d",
 			len(converters),
 		)
 	}

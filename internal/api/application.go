@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/sm-joe/papershift-doc-converter/engines/imagemagick"
 	"github.com/sm-joe/papershift-doc-converter/engines/libreoffice"
+	"github.com/sm-joe/papershift-doc-converter/engines/pdf"
 	"github.com/sm-joe/papershift-doc-converter/internal/converter"
 	"github.com/sm-joe/papershift-doc-converter/internal/detection"
 	"github.com/sm-joe/papershift-doc-converter/internal/formats"
@@ -29,6 +30,15 @@ func NewApplication(workspaceRoot string) *Application {
 	converterRegistry.Register(
 		imagemagick.NewWithWorkspace(
 			"/usr/bin/convert",
+			workspaceRoot,
+		),
+	)
+
+	converterRegistry.Register(
+		pdf.NewWithWorkspace(
+			"/usr/bin/pdftotext",
+			"/usr/bin/pdftohtml",
+			"/usr/bin/pandoc",
 			workspaceRoot,
 		),
 	)

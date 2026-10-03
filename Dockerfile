@@ -5,6 +5,7 @@ FROM golang:1.27-bookworm AS builder
 WORKDIR /src
 
 COPY go.mod ./
+
 RUN go mod download
 
 COPY . .
@@ -25,9 +26,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice \
         ca-certificates \
+        curl \
         fonts-dejavu \
         default-jre libreoffice-java-common \
-        imagemagick librsvg2-bin \
+        imagemagick librsvg2-bin pandoc poppler-utils \
     && rm -rf /var/lib/apt/lists/* \
     && useradd \
         --system \
@@ -36,14 +38,23 @@ RUN apt-get update \
         --home-dir /home/papershift \
         papershift \
     && mkdir -p /tmp/papershift \
-    && chown -R papershift:papershift /tmp/papershift
+    && chown -R papershift:papershift /tmp/papershift \
+    && chmod 700 /tmp/papershift
 
 COPY --from=builder /out/papershift-api /usr/local/bin/papershift-api
+
+RUN chmod 0755 /usr/local/bin/papershift-api
 
 USER 10001:10001
 
 WORKDIR /home/papershift
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s \
+    --timeout=5s \
+    --start-period=30s \
+    --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:8080/health || exit 1
 
 ENTRYPOINT ["/usr/local/bin/papershift-api"]
