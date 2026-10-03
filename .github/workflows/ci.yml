@@ -128,7 +128,7 @@ jobs:
           tags: papershift-api:ci
 
       - name: Set up Go
-        uses: actions/setup-go@v6]7
+        uses: actions/setup-go@v7
         with:
           go-version: "1.27"
 
