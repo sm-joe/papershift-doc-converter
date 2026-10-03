@@ -103,6 +103,97 @@ func TestReady(t *testing.T) {
 	}
 }
 
+func TestFormatsEndpoint(t *testing.T) {
+	response, err := http.Get(apiURL + "/api/v1/formats")
+	if err != nil {
+		t.Fatalf("formats request failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected formats status 200, got %d", response.StatusCode)
+	}
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read formats response: %v", err)
+	}
+
+	if len(body) == 0 {
+		t.Fatal("formats response is empty")
+	}
+
+	for _, expected := range []string{
+		`"id":"pdf"`,
+		`"id":"docx"`,
+		`"id":"xlsx"`,
+		`"id":"pptx"`,
+		`"id":"png"`,
+		`"id":"jpg"`,
+		`"id":"webp"`,
+	} {
+		if !strings.Contains(string(body), expected) {
+			t.Fatalf(
+				"formats response does not contain %s",
+				expected,
+			)
+		}
+	}
+}
+
+func TestCapabilitiesEndpoint(t *testing.T) {
+	response, err := http.Get(apiURL + "/api/v1/capabilities")
+	if err != nil {
+		t.Fatalf("capabilities request failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf(
+			"expected capabilities status 200, got %d",
+			response.StatusCode,
+		)
+	}
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read capabilities response: %v", err)
+	}
+
+	if len(body) == 0 {
+		t.Fatal("capabilities response is empty")
+	}
+
+	responseText := string(body)
+
+	for _, expected := range []string{
+		`"engine":"pdf"`,
+		`"engine":"libreoffice"`,
+		`"engine":"imagemagick"`,
+	} {
+		if !strings.Contains(responseText, expected) {
+			t.Fatalf(
+				"capabilities response does not contain %s",
+				expected,
+			)
+		}
+	}
+
+	for _, expected := range []string{
+		`"id":"pdf"`,
+		`"id":"txt"`,
+		`"id":"docx"`,
+		`"id":"png"`,
+	} {
+		if !strings.Contains(responseText, expected) {
+			t.Fatalf(
+				"capabilities response does not contain %s",
+				expected,
+			)
+		}
+	}
+}
+
 func TestPDFConversions(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -317,6 +408,10 @@ func TestImageMagickConversions(t *testing.T) {
 					"conversion status = %q, want completed",
 					output.Status,
 				)
+			}
+
+			if output.ID == "" {
+				t.Fatal("conversion response did not contain a job ID")
 			}
 
 			data := downloadOutput(t, output.Output)
@@ -674,6 +769,10 @@ func downloadOutput(t *testing.T, outputPath string) []byte {
 			string(body),
 		)
 	}
+
+	if response.Header.Get("Content-Type") == "" {
+		t.Fatal("download response does not contain Content-Type")
+	}	
 
 	data, err := io.ReadAll(response.Body)
 	if err != nil {
