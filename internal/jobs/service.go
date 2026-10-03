@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"strconv"
 
 	"github.com/sm-joe/papershift-doc-converter/internal/converter"
 	"github.com/sm-joe/papershift-doc-converter/internal/detection"
@@ -20,6 +21,9 @@ type Service struct {
 	workspaceRoot string
 	detector      *detection.Detector
 	converters    *converter.Registry
+	conversionTimeout time.Duration
+	maxInputSize int64
+	maxOutputSize int64
 }
 
 func NewService(
@@ -31,6 +35,17 @@ func NewService(
 		workspaceRoot: workspaceRoot,
 		detector:      detector,
 		converters:    converters,
+		conversionTimeout: time.Duration(
+			envInt64("PAPERSHIFT_CONVERSION_TIMEOUT_SECONDS", 120),
+		) * time.Second,
+		maxInputSize: envInt64(
+			"PAPERSHIFT_MAX_INPUT_SIZE_BYTES",
+			50*1024*1024,
+		),
+		maxOutputSize: envInt64(
+			"PAPERSHIFT_MAX_OUTPUT_SIZE_BYTES",
+			100*1024*1024,
+		),
 	}
 }
 
@@ -48,6 +63,11 @@ type ConvertResponse struct {
 }
 
 func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertResponse, error) {
+	conversionCtx, cancel := context.WithTimeout(
+		ctx,
+		s.conversionTimeout,
+	)
+	defer cancel()
 	now := time.Now()
 
 	job := Job{
@@ -67,7 +87,11 @@ func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertR
 		safeFilename(request.Filename),
 	)
 
-	if err := writeInput(inputPath, request.Input); err != nil {
+	if err := writeInputLimited(
+		inputPath,
+		request.Input,
+		s.maxInputSize,
+	); err != nil {
 		job.Status = StatusFailed
 		job.Error = err.Error()
 
@@ -138,11 +162,16 @@ func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertR
 
 	var output bytes.Buffer
 
-	_, err = selectedConverter.Convert(ctx, converter.Job{
+	limitedOutput := &limitedWriter{
+		writer: &output,
+		limit:  s.maxOutputSize,
+	}
+
+	_, err = selectedConverter.Convert(conversionCtx, converter.Job{
 		InputFormat:  inputFormat,
 		OutputFormat: outputFormat,
 		Input:        inputFile,
-		Output:       &output,
+		Output:       limitedOutput,
 	})
 	if err != nil {
 		job.Status = StatusFailed
@@ -152,6 +181,17 @@ func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertR
 			Job: job,
 		}, fmt.Errorf("conversion failed: %w", err)
 	}
+
+	if output.Len() == 0 {
+	err := fmt.Errorf("conversion produced empty output")
+
+	job.Status = StatusFailed
+	job.Error = err.Error()
+
+	return ConvertResponse{
+		Job: job,
+	}, err
+}
 
 	completedAt := time.Now()
 	job.CompletedAt = &completedAt
@@ -178,6 +218,34 @@ func writeInput(path string, input io.Reader) error {
 
 	if _, err := io.Copy(file, input); err != nil {
 		return fmt.Errorf("write input file: %w", err)
+	}
+
+	return nil
+}
+
+func writeInputLimited(
+	path string,
+	input io.Reader,
+	maxSize int64,
+) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create input file: %w", err)
+	}
+	defer file.Close()
+
+	reader := io.LimitReader(input, maxSize+1)
+
+	written, err := io.Copy(file, reader)
+	if err != nil {
+		return fmt.Errorf("write input file: %w", err)
+	}
+
+	if written > maxSize {
+		return fmt.Errorf(
+			"input file exceeds maximum size of %d bytes",
+			maxSize,
+		)
 	}
 
 	return nil
@@ -212,4 +280,50 @@ func newJobID() (string, error) {
 	}
 
 	return fmt.Sprintf("%x", bytesID), nil
+}
+
+func envInt64(name string, defaultValue int64) int64 {
+	value := os.Getenv(name)
+	if value == "" {
+		return defaultValue
+	}
+
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+
+	return parsed
+}
+
+type limitedWriter struct {
+	writer  io.Writer
+	limit   int64
+	written int64
+}
+
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	remaining := w.limit - w.written
+
+	if remaining <= 0 {
+		return 0, fmt.Errorf(
+			"output exceeds maximum size of %d bytes",
+			w.limit,
+		)
+	}
+
+	if int64(len(p)) > remaining {
+		n, _ := w.writer.Write(p[:remaining])
+		w.written += int64(n)
+
+		return n, fmt.Errorf(
+			"output exceeds maximum size of %d bytes",
+			w.limit,
+		)
+	}
+
+	n, err := w.writer.Write(p)
+	w.written += int64(n)
+
+	return n, err
 }

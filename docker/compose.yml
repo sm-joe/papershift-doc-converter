@@ -13,6 +13,10 @@ services:
     environment:
       PAPERSHIFT_ADDR: ":8080"
       PAPERSHIFT_WORK_DIR: "/tmp/papershift"
+      PAPERSHIFT_CORS_ORIGIN: "http://localhost:3000"
+      PAPERSHIFT_CONVERSION_TIMEOUT_SECONDS: "120"
+      PAPERSHIFT_MAX_INPUT_SIZE_BYTES: "52428800"
+      PAPERSHIFT_MAX_OUTPUT_SIZE_BYTES: "104857600"
 
     read_only: true
 

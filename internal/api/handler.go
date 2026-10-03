@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 
 	"github.com/sm-joe/papershift-doc-converter/internal/converter"
 )
@@ -23,7 +24,11 @@ func NewHandler(app *Application) http.Handler {
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		origin := os.Getenv("PAPERSHIFT_CORS_ORIGIN")
+		if origin == "" {
+			origin = "http://localhost:3000"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set(
 			"Access-Control-Allow-Headers",
