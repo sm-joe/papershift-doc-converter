@@ -18,7 +18,13 @@ func getFormat(t *testing.T, id string) formats.Format {
 }
 
 func TestConverterName(t *testing.T) {
-	c := New("pdftotext", "pdftohtml", "pandoc")
+	c := New(
+		"pdftotext",
+		"pdftohtml",
+		"pandoc",
+		"pdftoppm",
+		"convert",
+	)
 
 	if got := c.Name(); got != "pdf" {
 		t.Fatalf("expected pdf, got %q", got)
@@ -26,7 +32,13 @@ func TestConverterName(t *testing.T) {
 }
 
 func TestConverterSupports(t *testing.T) {
-	c := New("pdftotext", "pdftohtml", "pandoc")
+	c := New(
+		"pdftotext",
+		"pdftohtml",
+		"pandoc",
+		"pdftoppm",
+		"convert",
+	)
 
 	pdf := getFormat(t, "pdf")
 	txt := getFormat(t, "txt")
@@ -34,6 +46,8 @@ func TestConverterSupports(t *testing.T) {
 	odt := getFormat(t, "odt")
 	html := getFormat(t, "html")
 	jpg := getFormat(t, "jpg")
+	png := getFormat(t, "png")
+	webp := getFormat(t, "webp")
 
 	tests := []struct {
 		name   string
@@ -66,16 +80,34 @@ func TestConverterSupports(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:   "pdf to jpg unsupported for now",
+			name:   "pdf to jpg",
 			input:  pdf,
 			output: jpg,
-			want:   false,
+			want:   true,
 		},
 		{
 			name:   "non-pdf input unsupported",
 			input:  docx,
 			output: txt,
 			want:   false,
+		},
+		{
+			name:   "pdf to png",
+			input:  pdf,
+			output: png,
+			want:   true,
+		},
+		{
+			name:   "pdf to jpg",
+			input:  pdf,
+			output: jpg,
+			want:   true,
+		},
+		{
+			name:   "pdf to webp",
+			input:  pdf,
+			output: webp,
+			want:   true,
 		},
 	}
 

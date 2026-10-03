@@ -20,23 +20,42 @@ type Converter struct {
 	pdftotext string
 	pdftohtml string
 	pandoc    string
+	pdftoppm  string
+	convert   string
 	workspace string
 }
 
-func New(pdftotext, pdftohtml, pandoc string) *Converter {
-	return NewWithWorkspace(pdftotext, pdftohtml, pandoc, "")
+func New(
+	pdftotext string,
+	pdftohtml string,
+	pandoc string,
+	pdftoppm string,
+	convert string,
+) *Converter {
+	return NewWithWorkspace(
+		pdftotext,
+		pdftohtml,
+		pandoc,
+		pdftoppm,
+		convert,
+		"",
+	)
 }
 
 func NewWithWorkspace(
 	pdftotext string,
 	pdftohtml string,
 	pandoc string,
+	pdftoppm string,
+	convert string,
 	workspace string,
 ) *Converter {
 	return &Converter{
 		pdftotext: pdftotext,
 		pdftohtml: pdftohtml,
 		pandoc:    pandoc,
+		pdftoppm:  pdftoppm,
+		convert:   convert,
 		workspace: workspace,
 	}
 }
@@ -54,7 +73,7 @@ func (c *Converter) Supports(
 	}
 
 	switch output.ID {
-	case "txt", "docx", "odt", "html":
+	case "txt", "docx", "odt", "html", "png", "jpg", "webp":
 		return true
 	default:
 		return false
@@ -75,6 +94,7 @@ func (c *Converter) Convert(
 			err,
 		)
 	}
+
 	defer os.RemoveAll(workDir)
 
 	inputPath := filepath.Join(workDir, "input.pdf")
@@ -85,13 +105,39 @@ func (c *Converter) Convert(
 
 	switch job.OutputFormat.ID {
 	case "txt":
-		return c.convertText(ctx, inputPath, job.Output, job, workDir)
+		return c.convertText(
+			ctx,
+			inputPath,
+			job.Output,
+			job,
+			workDir,
+		)
 
 	case "html":
-		return c.convertHTML(ctx, inputPath, job.Output, job)
+		return c.convertHTML(
+			ctx,
+			inputPath,
+			job.Output,
+			job,
+		)
 
 	case "docx", "odt":
-		return c.convertDocument(ctx, inputPath, job.Output, job, workDir)
+		return c.convertDocument(
+			ctx,
+			inputPath,
+			job.Output,
+			job,
+			workDir,
+		)
+
+	case "png", "jpg", "webp":
+		return c.convertImage(
+			ctx,
+			inputPath,
+			job.Output,
+			job,
+			workDir,
+		)
 
 	default:
 		return converter.Result{}, fmt.Errorf(
@@ -225,14 +271,76 @@ func (c *Converter) convertDocument(
 	}, nil
 }
 
+func (c *Converter) convertImage(
+	ctx context.Context,
+	inputPath string,
+	output io.Writer,
+	job converter.Job,
+	workDir string,
+) (converter.Result, error) {
+	basePath := filepath.Join(workDir, "page")
+	pngPath := basePath + ".png"
+
+	if err := runCommand(
+		ctx,
+		c.pdftoppm,
+		"-f",
+		"1",
+		"-singlefile",
+		"-png",
+		inputPath,
+		basePath,
+	); err != nil {
+		return converter.Result{}, fmt.Errorf(
+			"PDF image rendering failed: %w",
+			err,
+		)
+	}
+
+	if job.OutputFormat.ID == "png" {
+		if err := copyOutput(pngPath, output); err != nil {
+			return converter.Result{}, err
+		}
+
+		return converter.Result{
+			InputFormat:  job.InputFormat,
+			OutputFormat: job.OutputFormat,
+		}, nil
+	}
+
+	outputPath := filepath.Join(
+		workDir,
+		"output"+job.OutputFormat.Extension,
+	)
+
+	if err := runCommand(
+		ctx,
+		c.convert,
+		pngPath,
+		outputPath,
+	); err != nil {
+		return converter.Result{}, fmt.Errorf(
+			"PDF image conversion failed: %w",
+			err,
+		)
+	}
+
+	if err := copyOutput(outputPath, output); err != nil {
+		return converter.Result{}, err
+	}
+
+	return converter.Result{
+		InputFormat:  job.InputFormat,
+		OutputFormat: job.OutputFormat,
+	}, nil
+}
+
 func pandocTarget(format string) string {
 	switch format {
 	case "docx":
 		return "docx"
-
 	case "odt":
 		return "odt"
-
 	default:
 		return format
 	}

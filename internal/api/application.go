@@ -39,6 +39,8 @@ func NewApplication(workspaceRoot string) *Application {
 			"/usr/bin/pdftotext",
 			"/usr/bin/pdftohtml",
 			"/usr/bin/pandoc",
+			"/usr/bin/pdftoppm",
+			"/usr/bin/convert",
 			workspaceRoot,
 		),
 	)
