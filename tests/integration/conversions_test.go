@@ -187,6 +187,180 @@ func TestPDFConversions(t *testing.T) {
 	}
 }
 
+func TestUnsupportedInputFormat(t *testing.T) {
+	t.Helper()
+
+	var body bytes.Buffer
+
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile(
+		"file",
+		"sample.xyz",
+	)
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+
+	if _, err := part.Write([]byte("this is not a supported file format")); err != nil {
+		t.Fatalf("write unsupported input: %v", err)
+	}
+
+	if err := writer.WriteField(
+		"output_format",
+		"txt",
+	); err != nil {
+		t.Fatalf("write output format: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	request, err := http.NewRequest(
+		http.MethodPost,
+		apiURL+"/api/v1/conversions",
+		&body,
+	)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	request.Header.Set(
+		"Content-Type",
+		writer.FormDataContentType(),
+	)
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("conversion request failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < 400 || response.StatusCode >= 500 {
+		t.Fatalf(
+			"expected 4xx response, got %d",
+			response.StatusCode,
+		)
+	}
+}
+
+func TestUnknownOutputFormat(t *testing.T) {
+	t.Helper()
+
+	var body bytes.Buffer
+
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile(
+		"file",
+		"sample.pdf",
+	)
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+
+	if _, err := part.Write([]byte(samplePDF)); err != nil {
+		t.Fatalf("write PDF fixture: %v", err)
+	}
+
+	if err := writer.WriteField(
+		"output_format",
+		"definitely-not-a-format",
+	); err != nil {
+		t.Fatalf("write output format: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	request, err := http.NewRequest(
+		http.MethodPost,
+		apiURL+"/api/v1/conversions",
+		&body,
+	)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	request.Header.Set(
+		"Content-Type",
+		writer.FormDataContentType(),
+	)
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("conversion request failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < 400 || response.StatusCode >= 500 {
+		t.Fatalf(
+			"expected 4xx response, got %d",
+			response.StatusCode,
+		)
+	}
+}
+
+func TestUnsupportedConversionPair(t *testing.T) {
+	t.Helper()
+
+	var body bytes.Buffer
+
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile(
+		"file",
+		"sample.pdf",
+	)
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+
+	if _, err := part.Write([]byte(samplePDF)); err != nil {
+		t.Fatalf("write PDF fixture: %v", err)
+	}
+
+	if err := writer.WriteField(
+		"output_format",
+		"csv",
+	); err != nil {
+		t.Fatalf("write output format: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	request, err := http.NewRequest(
+		http.MethodPost,
+		apiURL+"/api/v1/conversions",
+		&body,
+	)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	request.Header.Set(
+		"Content-Type",
+		writer.FormDataContentType(),
+	)
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("conversion request failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < 400 || response.StatusCode >= 500 {
+		t.Fatalf(
+			"expected 4xx response, got %d",
+			response.StatusCode,
+		)
+	}
+}
+
 func convertPDF(t *testing.T, outputFormat string) conversionResponse {
 	t.Helper()
 
