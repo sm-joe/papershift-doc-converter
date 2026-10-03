@@ -36,7 +36,31 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/papershift-doc-converter
 
-      - name: Build and Push Image
+      - name: Build Image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/papershift-doc-converter:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/papershift-doc-converter:latest
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan Image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: "v0.75.0"
+          image-ref: ghcr.io/${{ github.repository_owner }}/papershift-doc-converter:${{ github.ref_name }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Push Image
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -47,4 +71,3 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/papershift-doc-converter:latest
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
