@@ -1,10 +1,7 @@
 services:
   papershift:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    image: papershift-api:local
-    container_name: papershift
+    image: ghcr.io/sm-joe/papershift-doc-converter:latest
+    container_name: papershift-api
     restart: unless-stopped
 
     ports:
@@ -40,6 +37,25 @@ services:
       nofile:
         soft: 4096
         hard: 8192
+
+  web:
+    image: ghcr.io/sm-joe/papershift-doc-converter-web:latest
+    container_name: papershift-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - papershift
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev
+    mem_limit: 512m
+    pids_limit: 128
+    cpus: "1.0"
 
 volumes:
   papershift-work:
