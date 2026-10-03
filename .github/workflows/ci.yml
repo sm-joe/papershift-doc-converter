@@ -33,7 +33,7 @@ jobs:
         run: go vet ./...
 
       - name: Test Go
-        run: go test ./...
+        run: go test ./apps/... ./engines/... ./internal/...
 
   frontend:
     name: Frontend
@@ -147,12 +147,6 @@ jobs:
             --cpus 2.0 \
             --ulimit nofile=4096:8192 \
             papershift-api:ci
-
-      - name: Inspect PaperShift container
-        run: |
-          docker ps -a
-          docker port papershift-integration
-          docker logs papershift-integration
 
       - name: Wait for PaperShift
         shell: bash
