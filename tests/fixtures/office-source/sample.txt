@@ -1,0 +1,3 @@
+PaperShift Integration Test
+
+This document is used to validate real LibreOffice conversions.

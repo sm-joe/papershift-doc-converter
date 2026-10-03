@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"path/filepath"
 )
 
 const apiURL = "http://localhost:8080"
@@ -51,6 +52,25 @@ startxref
 453
 %%EOF
 `
+var (
+	docxFixture = mustReadFixture("sample.docx")
+	xlsxFixture = mustReadFixture("sample.xlsx")
+	pptxFixture = mustReadFixture("sample.pptx")
+	pngFixture  = mustReadFixture("sample.png")
+	jpgFixture  = mustReadFixture("sample.jpg")
+	svgFixture  = mustReadFixture("sample.svg")
+)
+
+func mustReadFixture(name string) []byte {
+	path := filepath.Join("..", "..", "tests", "fixtures", name)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("read fixture %q: %v", name, err))
+	}
+
+	return data
+}
 
 type conversionResponse struct {
 	ID       string `json:"id"`
@@ -185,6 +205,204 @@ func TestPDFConversions(t *testing.T) {
 			tt.check(t, data)
 		})
 	}
+}
+
+func TestLibreOfficeConversions(t *testing.T) {
+	tests := []struct {
+		name       string
+		filename   string
+		input      []byte
+		output     string
+		signature  []byte
+	}{
+		{
+			name:      "DOCX to PDF",
+			filename:  "sample.docx",
+			input:     docxFixture,
+			output:    "pdf",
+			signature: []byte("%PDF-"),
+		},
+		{
+			name:      "XLSX to PDF",
+			filename:  "sample.xlsx",
+			input:     xlsxFixture,
+			output:    "pdf",
+			signature: []byte("%PDF-"),
+		},
+		{
+			name:      "PPTX to PDF",
+			filename:  "sample.pptx",
+			input:     pptxFixture,
+			output:    "pdf",
+			signature: []byte("%PDF-"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := convertFile(
+				t,
+				tt.filename,
+				tt.input,
+				tt.output,
+			)
+
+			if output.Status != "completed" {
+				t.Fatalf(
+					"conversion status = %q, want completed",
+					output.Status,
+				)
+			}
+
+			data := downloadOutput(t, output.Output)
+
+			if len(data) == 0 {
+				t.Fatal("conversion output is empty")
+			}
+
+			assertSignature(t, data, tt.signature)
+		})
+	}
+}
+
+func TestImageMagickConversions(t *testing.T) {
+	tests := []struct {
+		name      string
+		filename  string
+		input     []byte
+		output    string
+		signature []byte
+	}{
+		{
+			name:      "PNG to JPG",
+			filename:  "sample.png",
+			input:     pngFixture,
+			output:    "jpg",
+			signature: []byte{0xff, 0xd8, 0xff},
+		},
+		{
+			name:      "PNG to WebP",
+			filename:  "sample.png",
+			input:     pngFixture,
+			output:    "webp",
+			signature: []byte{'R', 'I', 'F', 'F'},
+		},
+		{
+			name:      "JPG to PNG",
+			filename:  "sample.jpg",
+			input:     jpgFixture,
+			output:    "png",
+			signature: []byte{0x89, 0x50, 0x4e, 0x47},
+		},
+		{
+			name:      "SVG to PNG",
+			filename:  "sample.svg",
+			input:     []byte(svgFixture),
+			output:    "png",
+			signature: []byte{0x89, 0x50, 0x4e, 0x47},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := convertFile(
+				t,
+				tt.filename,
+				tt.input,
+				tt.output,
+			)
+
+			if output.Status != "completed" {
+				t.Fatalf(
+					"conversion status = %q, want completed",
+					output.Status,
+				)
+			}
+
+			data := downloadOutput(t, output.Output)
+
+			if len(data) == 0 {
+				t.Fatal("conversion output is empty")
+			}
+
+			assertSignature(t, data, tt.signature)
+		})
+	}
+}
+
+func convertFile(
+	t *testing.T,
+	filename string,
+	input []byte,
+	outputFormat string,
+) conversionResponse {
+	t.Helper()
+
+	var body bytes.Buffer
+
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+
+	if _, err := part.Write(input); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	if err := writer.WriteField("output_format", outputFormat); err != nil {
+		t.Fatalf("write output format: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	request, err := http.NewRequest(
+		http.MethodPost,
+		apiURL+"/api/v1/conversions",
+		&body,
+	)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	request.Header.Set(
+		"Content-Type",
+		writer.FormDataContentType(),
+	)
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("conversion request failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read conversion response: %v", err)
+	}
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		t.Fatalf(
+			"conversion returned HTTP %d: %s",
+			response.StatusCode,
+			string(responseBody),
+		)
+	}
+
+	var result conversionResponse
+
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		t.Fatalf(
+			"decode conversion response: %v: %s",
+			err,
+			string(responseBody),
+		)
+	}
+
+	return result
 }
 
 func TestUnsupportedInputFormat(t *testing.T) {
