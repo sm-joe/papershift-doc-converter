@@ -17,7 +17,13 @@ type Application struct {
 
 func NewApplication(workspaceRoot string) *Application {
 	converterRegistry := converter.NewRegistry()
-	converterRegistry.Register(libreoffice.New("libreoffice"))
+
+	converterRegistry.Register(
+		libreoffice.NewWithWorkspace(
+			"/usr/lib/libreoffice/program/soffice",
+			workspaceRoot,
+		),
+	)
 
 	detector := &detection.Detector{}
 

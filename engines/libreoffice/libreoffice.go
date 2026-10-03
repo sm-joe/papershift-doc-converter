@@ -2,29 +2,29 @@ package libreoffice
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/sm-joe/papershift-doc-converter/internal/converter"
 	"github.com/sm-joe/papershift-doc-converter/internal/formats"
 )
 
-var ErrOutputMissing = errors.New("converter produced no output")
-
 type Converter struct {
-	binary string
+	binary    string
+	workspace string
 }
 
 func New(binary string) *Converter {
-	if binary == "" {
-		binary = "libreoffice"
-	}
+	return NewWithWorkspace(binary, "")
+}
 
+func NewWithWorkspace(binary, workspace string) *Converter {
 	return &Converter{
-		binary: binary,
+		binary:    binary,
+		workspace: workspace,
 	}
 }
 
@@ -32,32 +32,32 @@ func (c *Converter) Name() string {
 	return "libreoffice"
 }
 
-func (c *Converter) Supports(
-	input formats.Format,
-	output formats.Format,
-) bool {
-	if input.Family != formats.FamilyDocument &&
-		input.Family != formats.FamilySpreadsheet &&
-		input.Family != formats.FamilyPresentation {
+func (c *Converter) Supports(input, output formats.Format) bool {
+	if output.ID != "pdf" {
 		return false
 	}
 
 	switch input.ID {
-	case "doc", "docx", "odt", "rtf":
+	case "doc", "docx", "odt", "rtf", "txt", "html", "md":
+		return true
 	default:
 		return false
 	}
-
-	return output.ID == "pdf"
 }
 
-func (c *Converter) Convert(
-	ctx context.Context,
-	job converter.Job,
-) (converter.Result, error) {
-	workDir, err := os.MkdirTemp("", "papershift-lo-*")
+func (c *Converter) Convert(ctx context.Context, job converter.Job) (converter.Result, error) {
+	if !c.Supports(job.InputFormat, job.OutputFormat) {
+		return converter.Result{}, converter.ErrNoConverter
+	}
+
+	baseDir := c.workspace
+	if baseDir == "" {
+		baseDir = os.TempDir()
+	}
+
+	workDir, err := os.MkdirTemp(baseDir, "papershift-lo-*")
 	if err != nil {
-		return converter.Result{}, fmt.Errorf("create workspace: %w", err)
+		return converter.Result{}, fmt.Errorf("create libreoffice workspace: %w", err)
 	}
 	defer os.RemoveAll(workDir)
 
@@ -67,21 +67,44 @@ func (c *Converter) Convert(
 	)
 
 	outputDir := filepath.Join(workDir, "output")
+	profileDir := filepath.Join(workDir, "profile")
+	tempDir := filepath.Join(workDir, "tmp")
+	cacheDir := filepath.Join(workDir, "cache")
+	configDir := filepath.Join(workDir, "config")
+	dataDir := filepath.Join(workDir, "data")
 
-	if err := os.MkdirAll(outputDir, 0700); err != nil {
-		return converter.Result{}, fmt.Errorf("create output directory: %w", err)
+	for _, dir := range []string{
+		outputDir,
+		profileDir,
+		tempDir,
+		cacheDir,
+		configDir,
+		dataDir,
+	} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return converter.Result{}, fmt.Errorf("create libreoffice directory: %w", err)
+		}
 	}
 
 	if err := writeInput(inputPath, job.Input); err != nil {
 		return converter.Result{}, err
 	}
 
+	userInstallation := "file://" + filepath.ToSlash(profileDir)
+
 	cmd := exec.CommandContext(
 		ctx,
 		c.binary,
 		"--headless",
+		"--invisible",
+		"--nologo",
+		"--nodefault",
+		"--nofirststartwizard",
+		"--nolockcheck",
+		"--norestore",
+		"-env:UserInstallation="+userInstallation,
 		"--convert-to",
-		job.OutputFormat.Extension[1:],
+		strings.TrimPrefix(job.OutputFormat.Extension, "."),
 		"--outdir",
 		outputDir,
 		inputPath,
@@ -89,56 +112,65 @@ func (c *Converter) Convert(
 
 	cmd.Dir = workDir
 
-	cmd.Env = append(
-		os.Environ(),
-		"HOME="+workDir,
-		"TMPDIR="+workDir,
-	)
+	cmd.Env = replaceEnvironment(os.Environ(), map[string]string{
+		"HOME":            workDir,
+		"TMPDIR":          tempDir,
+		"XDG_CACHE_HOME":  cacheDir,
+		"XDG_CONFIG_HOME": configDir,
+		"XDG_DATA_HOME":   dataDir,
+	})
 
-	output, err := cmd.CombinedOutput()
+	combinedOutput, err := cmd.CombinedOutput()
 	if err != nil {
-		if ctx.Err() != nil {
-			return converter.Result{}, fmt.Errorf(
-				"libreoffice conversion cancelled or timed out: %w",
-				ctx.Err(),
-			)
-		}
-
 		return converter.Result{}, fmt.Errorf(
 			"libreoffice conversion failed: %w: %s",
 			err,
-			string(output),
+			strings.TrimSpace(string(combinedOutput)),
 		)
 	}
 
 	outputPath := filepath.Join(
 		outputDir,
-		replaceExtension(
-			filepath.Base(inputPath),
-			job.OutputFormat.Extension,
-		),
+		replaceExtension(filepath.Base(inputPath), job.OutputFormat.Extension),
 	)
 
 	if _, err := os.Stat(outputPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return converter.Result{}, ErrOutputMissing
-		}
-
 		return converter.Result{}, fmt.Errorf(
-			"inspect conversion output: %w",
+			"libreoffice output missing: %w",
 			err,
 		)
 	}
 
 	if err := copyFile(outputPath, job.Output); err != nil {
-		return converter.Result{}, fmt.Errorf(
-			"copy conversion output: %w",
-			err,
-		)
+		return converter.Result{}, err
 	}
 
 	return converter.Result{
 		InputFormat:  job.InputFormat,
 		OutputFormat: job.OutputFormat,
 	}, nil
+}
+
+func replaceEnvironment(
+	environment []string,
+	replacements map[string]string,
+) []string {
+	result := make([]string, 0, len(environment)+len(replacements))
+
+	for _, entry := range environment {
+		key, _, found := strings.Cut(entry, "=")
+		if found {
+			if _, replace := replacements[key]; replace {
+				continue
+			}
+		}
+
+		result = append(result, entry)
+	}
+
+	for key, value := range replacements {
+		result = append(result, key+"="+value)
+	}
+
+	return result
 }
