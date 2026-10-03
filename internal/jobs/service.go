@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sm-joe/papershift-doc-converter/internal/converter"
@@ -187,7 +188,13 @@ func safeFilename(name string) string {
 }
 
 func replaceExtension(filename, extension string) string {
-	extension = "." + extension
+	if extension == "" {
+		return filename
+	}
+
+	if !strings.HasPrefix(extension, ".") {
+		extension = "." + extension
+	}
 
 	ext := filepath.Ext(filename)
 	if ext == "" {
