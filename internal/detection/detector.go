@@ -1,6 +1,7 @@
 package detection
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"errors"
@@ -29,6 +30,12 @@ func (d *Detector) Detect(name string, r io.Reader) (formats.Format, error) {
 
 	if format, ok := detectBySignature(data); ok {
 		return format, nil
+	}
+
+	if isZIPSignature(data) {
+		if format, ok := detectZipContainer(r); ok {
+			return format, nil
+		}
 	}
 
 	if format, ok := detectText(name, data); ok {
@@ -86,31 +93,81 @@ func detectBySignature(data []byte) (formats.Format, bool) {
 		return format, ok
 	}
 
-	if bytes.HasPrefix(data, []byte("PK\x03\x04")) {
-		return detectZipContainer(data)
-	}
-
 	return formats.Format{}, false
 }
 
-func detectZipContainer(data []byte) (formats.Format, bool) {
-	content := string(data)
+func isZIPSignature(data []byte) bool {
+	return bytes.HasPrefix(data, []byte("PK\x03\x04")) ||
+		bytes.HasPrefix(data, []byte("PK\x05\x06")) ||
+		bytes.HasPrefix(data, []byte("PK\x07\x08"))
+}
+
+func detectZipContainer(r io.Reader) (formats.Format, bool) {
+	readerAt, ok := r.(io.ReaderAt)
+	if !ok {
+		return formats.Format{}, false
+	}
+
+	seeker, ok := r.(io.Seeker)
+	if !ok {
+		return formats.Format{}, false
+	}
+
+	currentOffset, err := seeker.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return formats.Format{}, false
+	}
+
+	size, err := seeker.Seek(0, io.SeekEnd)
+	if err != nil {
+		return formats.Format{}, false
+	}
+
+	if _, err := seeker.Seek(currentOffset, io.SeekStart); err != nil {
+		return formats.Format{}, false
+	}
+
+	archive, err := zip.NewReader(readerAt, size)
+	if err != nil {
+		return formats.Format{}, false
+	}
+
+	var hasContentTypes bool
+	var hasWord bool
+	var hasExcel bool
+	var hasPowerPoint bool
+
+	for _, file := range archive.File {
+		name := strings.ReplaceAll(file.Name, "\\", "/")
+
+		switch name {
+		case "[Content_Types].xml":
+			hasContentTypes = true
+		case "word/document.xml":
+			hasWord = true
+		case "xl/workbook.xml":
+			hasExcel = true
+		case "ppt/presentation.xml":
+			hasPowerPoint = true
+		}
+	}
+
+	if !hasContentTypes {
+		return formats.Format{}, false
+	}
 
 	switch {
-	case strings.Contains(content, "[Content_Types].xml"):
-		switch {
-		case strings.Contains(content, "word/"):
-			format, ok := formats.Get("docx")
-			return format, ok
+	case hasWord:
+		format, ok := formats.Get("docx")
+		return format, ok
 
-		case strings.Contains(content, "xl/"):
-			format, ok := formats.Get("xlsx")
-			return format, ok
+	case hasExcel:
+		format, ok := formats.Get("xlsx")
+		return format, ok
 
-		case strings.Contains(content, "ppt/"):
-			format, ok := formats.Get("pptx")
-			return format, ok
-		}
+	case hasPowerPoint:
+		format, ok := formats.Get("pptx")
+		return format, ok
 	}
 
 	return formats.Format{}, false

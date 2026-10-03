@@ -1,6 +1,7 @@
 package detection
 
 import (
+	"archive/zip"
 	"bytes"
 	"testing"
 )
@@ -62,13 +63,13 @@ func TestDetectJPEG(t *testing.T) {
 }
 
 func TestDetectDOCXContainer(t *testing.T) {
-	detector := New()
+	data := createZIPFixture(t, map[string]string{
+		"[Content_Types].xml": "content types",
+		"word/document.xml":   "document",
+		"word/styles.xml":     "styles",
+	})
 
-	data := []byte(
-		"PK\x03\x04" +
-			"[Content_Types].xml" +
-			"word/document.xml",
-	)
+	detector := New()
 
 	format, err := detector.Detect(
 		"document.docx",
@@ -81,6 +82,52 @@ func TestDetectDOCXContainer(t *testing.T) {
 
 	if format.ID != "docx" {
 		t.Fatalf("expected docx, got %s", format.ID)
+	}
+}
+
+func TestDetectXLSXContainer(t *testing.T) {
+	data := createZIPFixture(t, map[string]string{
+		"[Content_Types].xml": "content types",
+		"xl/workbook.xml":     "workbook",
+		"xl/styles.xml":       "styles",
+	})
+
+	detector := New()
+
+	format, err := detector.Detect(
+		"spreadsheet.xlsx",
+		bytes.NewReader(data),
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if format.ID != "xlsx" {
+		t.Fatalf("expected xlsx, got %s", format.ID)
+	}
+}
+
+func TestDetectPPTXContainer(t *testing.T) {
+	data := createZIPFixture(t, map[string]string{
+		"[Content_Types].xml":   "content types",
+		"ppt/presentation.xml":  "presentation",
+		"ppt/slides/slide1.xml": "slide",
+	})
+
+	detector := New()
+
+	format, err := detector.Detect(
+		"presentation.pptx",
+		bytes.NewReader(data),
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if format.ID != "pptx" {
+		t.Fatalf("expected pptx, got %s", format.ID)
 	}
 }
 
@@ -112,4 +159,29 @@ func TestUnknownBinary(t *testing.T) {
 	if err != ErrUnknownFormat {
 		t.Fatalf("expected ErrUnknownFormat, got %v", err)
 	}
+}
+
+func createZIPFixture(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+
+	var buffer bytes.Buffer
+
+	writer := zip.NewWriter(&buffer)
+
+	for name, content := range files {
+		file, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create ZIP entry %q: %v", name, err)
+		}
+
+		if _, err := file.Write([]byte(content)); err != nil {
+			t.Fatalf("write ZIP entry %q: %v", name, err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close ZIP writer: %v", err)
+	}
+
+	return buffer.Bytes()
 }
