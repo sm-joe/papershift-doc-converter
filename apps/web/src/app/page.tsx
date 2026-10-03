@@ -33,6 +33,15 @@ function extensionOf(filename: string) {
   return filename.slice(index + 1).toLowerCase();
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -330,6 +339,9 @@ export default function Home() {
                     <>
                       <p className="max-w-full truncate text-base font-semibold">
                         {file.name}
+                      </p>
+                      <p className="mt-1 text-sm text-neutral-500">
+                        {formatFileSize(file.size)}
                       </p>
 
                       <p className="mt-2 text-xs text-black/40">
