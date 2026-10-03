@@ -26,6 +26,8 @@ RUN apt-get update \
         libreoffice \
         ca-certificates \
         fonts-dejavu \
+        default-jre libreoffice-java-common \
+        imagemagick librsvg2-bin \
     && rm -rf /var/lib/apt/lists/* \
     && useradd \
         --system \

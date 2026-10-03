@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/sm-joe/papershift-doc-converter/engines/imagemagick"
 	"github.com/sm-joe/papershift-doc-converter/engines/libreoffice"
 	"github.com/sm-joe/papershift-doc-converter/internal/converter"
 	"github.com/sm-joe/papershift-doc-converter/internal/detection"
@@ -21,6 +22,13 @@ func NewApplication(workspaceRoot string) *Application {
 	converterRegistry.Register(
 		libreoffice.NewWithWorkspace(
 			"/usr/lib/libreoffice/program/soffice",
+			workspaceRoot,
+		),
+	)
+
+	converterRegistry.Register(
+		imagemagick.NewWithWorkspace(
+			"/usr/bin/convert",
 			workspaceRoot,
 		),
 	)

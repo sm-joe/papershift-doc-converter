@@ -38,7 +38,9 @@ func (c *Converter) Supports(input, output formats.Format) bool {
 	}
 
 	switch input.ID {
-	case "doc", "docx", "odt", "rtf", "txt", "html", "md":
+	case "doc", "docx", "odt", "rtf", "txt", "html", "md",
+		"xls", "xlsx", "ods", "csv", "tsv",
+		"ppt", "pptx", "odp":
 		return true
 	default:
 		return false
