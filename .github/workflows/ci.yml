@@ -148,6 +148,12 @@ jobs:
             --ulimit nofile=4096:8192 \
             papershift-api:ci
 
+      - name: Inspect PaperShift container
+        run: |
+          docker ps -a
+          docker port papershift-integration
+          docker logs papershift-integration
+
       - name: Wait for PaperShift
         shell: bash
         run: |
