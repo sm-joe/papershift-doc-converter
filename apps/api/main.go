@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/sm-joe/papershift-doc-converter/internal/formats"
 )
 
 type healthResponse struct {
@@ -61,7 +63,7 @@ func formatsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"formats": []any{},
+		"formats": formats.All(),
 	})
 }
 
