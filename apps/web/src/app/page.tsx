@@ -212,11 +212,11 @@ export default function Home() {
 
           <div className="hidden items-center gap-2 sm:flex">
             <span className="rounded-full border border-black/10 bg-white/50 px-3 py-1.5 text-xs text-black/55">
-              Open source
+              Open Source
             </span>
 
             <span className="rounded-full bg-[#dce9df] px-3 py-1.5 text-xs font-medium text-[#31513d]">
-              Self-hosted
+              Self-Hosted
             </span>
           </div>
         </header>
@@ -468,6 +468,10 @@ export default function Home() {
                         </p>
                       </div>
 
+                      <p className="mt-2 text-sm text-black/50">
+                        {outputFormat.toUpperCase()} · Ready to download
+                      </p>
+
                       <div className="flex shrink-0 gap-2">
                         <button
                           type="button"
@@ -521,11 +525,11 @@ export default function Home() {
         <div className="border-t border-black/10 py-5">
           <div className="flex flex-col justify-between gap-2 text-[11px] text-black/35 sm:flex-row">
             <span>
-              PaperShift — made for files, not funnels.
+              PaperShift — Made for Files, Not Funnels.
             </span>
 
             <span>
-              Private by design · Self-hosted · Open source
+              Private by design · Self-Hosted · Open Source
             </span>
           </div>
         </div>
