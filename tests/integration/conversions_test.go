@@ -71,6 +71,18 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestReady(t *testing.T) {
+	response, err := http.Get(apiURL + "/ready")
+	if err != nil {
+		t.Fatalf("ready request failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected ready status 200, got %d", response.StatusCode)
+	}
+}
+
 func TestPDFConversions(t *testing.T) {
 	tests := []struct {
 		name       string
