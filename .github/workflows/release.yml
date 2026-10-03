@@ -36,7 +36,13 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/papershift-doc-converter
 
-      - name: Build Image
+      - name: Extract web image metadata
+        id: web-meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/papershift-doc-converter-web
+
+      - name: Build API Image
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -50,7 +56,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan Image
+      - name: Build Web Image
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/web
+          file: apps/web/Dockerfile
+          load: true
+          push: false
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/papershift-doc-converter-web:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/papershift-doc-converter-web:latest
+          labels: ${{ steps.web-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan API Image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: "v0.75.0"
@@ -60,7 +80,17 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
-      - name: Push Image
+      - name: Scan Web Image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: "v0.75.0"
+          image-ref: ghcr.io/${{ github.repository_owner }}/papershift-doc-converter-web:${{ github.ref_name }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Push API Image
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -69,5 +99,17 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/papershift-doc-converter:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/papershift-doc-converter:latest
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+
+      - name: Push Web Image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/papershift-doc-converter-web:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/papershift-doc-converter-web:latest
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

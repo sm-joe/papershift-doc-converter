@@ -529,7 +529,7 @@ export default function Home() {
             </span>
 
             <span>
-              Private by design · Self-Hosted · Open Source
+              Private by Design · Self-Hosted · Open Source
             </span>
           </div>
         </div>
