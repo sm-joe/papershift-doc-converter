@@ -125,3 +125,34 @@ func TestConverterSupports(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertImageRequiresRuntimeTools(t *testing.T) {
+	c := New(
+		"pdftotext",
+		"pdftohtml",
+		"pandoc",
+		"pdftoppm",
+		"convert",
+	)
+
+	if !c.Supports(
+		getFormat(t, "pdf"),
+		getFormat(t, "png"),
+	) {
+		t.Fatal("expected PDF -> PNG to be supported")
+	}
+
+	if !c.Supports(
+		getFormat(t, "pdf"),
+		getFormat(t, "jpg"),
+	) {
+		t.Fatal("expected PDF -> JPG to be supported")
+	}
+
+	if !c.Supports(
+		getFormat(t, "pdf"),
+		getFormat(t, "webp"),
+	) {
+		t.Fatal("expected PDF -> WebP to be supported")
+	}
+}
