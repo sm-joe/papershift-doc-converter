@@ -77,6 +77,10 @@ func Compress(
 			return err
 		}
 
+		if !isSafeArchiveEntryName(entry.Name) {
+			return fmt.Errorf("unsafe DOCX archive entry name %q", entry.Name)
+		}
+
 		header := entry.FileHeader
 
 		if entry.FileInfo().IsDir() {
@@ -240,6 +244,24 @@ func compressImageEntry(
 	}
 
 	return compressedPath, true, nil
+}
+
+func isSafeArchiveEntryName(name string) bool {
+	clean := filepath.Clean(name)
+
+	if clean == "." || clean == "" {
+		return false
+	}
+
+	if filepath.IsAbs(clean) {
+		return false
+	}
+
+	if strings.HasPrefix(clean, "..") || strings.Contains(clean, string(filepath.Separator)+".."+string(filepath.Separator)) {
+		return false
+	}
+
+	return clean == name
 }
 
 func extractZipEntry(
