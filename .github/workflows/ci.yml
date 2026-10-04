@@ -6,14 +6,14 @@ on:
       - main
       - develop
     paths:
-      - "**.go"
+      - "**/*.go"
       - "go.mod"
       - "go.sum"
       - "Dockerfile"
       - ".dockerignore"
-
       - "docker/**"
-      - "apps/**"
+      - "apps/api/**"
+      - "apps/web/**"
       - "engines/**"
       - "internal/**"
       - "tests/**"
@@ -21,13 +21,14 @@ on:
 
   pull_request:
     paths:
-      - "**.go"
+      - "**/*.go"
       - "go.mod"
       - "go.sum"
       - "Dockerfile"
       - ".dockerignore"
       - "docker/**"
-      - "apps/**"
+      - "apps/api/**"
+      - "apps/web/**"
       - "engines/**"
       - "internal/**"
       - "tests/**"
@@ -35,26 +36,64 @@ on:
 
 permissions:
   contents: read
-  security-events: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      docker: ${{ steps.filter.outputs.docker }}
+      integration: ${{ steps.filter.outputs.integration }}
+
+    steps:
+      - name: Detect Changed Paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'apps/api/**'
+              - 'engines/**'
+              - 'internal/**'
+              - 'go.mod'
+              - 'go.sum'
+
+            frontend:
+              - 'apps/web/**'
+
+            docker:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'docker/**'
+
+            integration:
+              - 'tests/**'
+              - '.github/workflows/ci.yml'
+
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version: "1.27"
-
-      - name: Download Dependencies
-        run: go mod download
+          cache: true
 
       - name: Check Go Formatting
         run: |
@@ -66,7 +105,7 @@ jobs:
           fi
 
       - name: Verify Go
-        run: go vet ./...
+        run: go vet ./apps/... ./engines/... ./internal/...
 
       - name: Test Go
         run: go test ./apps/... ./engines/... ./internal/...
@@ -74,6 +113,9 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
 
     defaults:
       run:
@@ -82,8 +124,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -99,17 +139,36 @@ jobs:
         run: npm run lint
 
       - name: Run Type Check
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Run Build
         run: npm run build
 
   docker:
-    name: Docker Build
+    name: Docker & Integration
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs:
+      - changes
       - backend
       - frontend
+
+    if: |
+      always() &&
+      (
+        needs.backend.result == 'success' ||
+        needs.backend.result == 'skipped'
+      ) &&
+      (
+        needs.frontend.result == 'success' ||
+        needs.frontend.result == 'skipped'
+      ) &&
+      (
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.docker == 'true' ||
+        needs.changes.outputs.integration == 'true'
+      )
 
     permissions:
       contents: read
@@ -118,8 +177,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -152,33 +209,11 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy-container
 
-  integration:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs:
-      - docker
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build PaperShift Image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile
-          load: true
-          tags: papershift-api:ci
-
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version: "1.27"
+          cache: true
 
       - name: Start PaperShift
         run: |
@@ -201,23 +236,6 @@ jobs:
         run: |
           for i in {1..30}; do
             if curl --fail --silent http://127.0.0.1:8080/health > /dev/null; then
-              exit 0
-            fi
-
-            sleep 2
-          done
-
-          echo "PaperShift failed to become healthy"
-          docker logs papershift-integration
-          exit 1
-
-      - name: Run Integration Tests
-        run: go test ./tests/integration -v
-
-      - name: Verify container health
-        run: |
-          for i in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8080/health > /dev/null; then
               echo "PaperShift is healthy"
               exit 0
             fi
@@ -226,13 +244,16 @@ jobs:
           done
 
           echo "PaperShift failed to become healthy"
-          docker logs papershift-integration
+          docker logs papershift-integration 2>&1 || true
           exit 1
+
+      - name: Run Integration Tests
+        run: go test ./tests/integration -v
 
       - name: Show Container Logs
         if: always()
-        run: docker logs papershift-integration
+        run: docker logs papershift-integration 2>&1 || true
 
       - name: Stop PaperShift
         if: always()
-        run: docker rm -f papershift-integration
+        run: docker rm -f papershift-integration 2>/dev/null || true
