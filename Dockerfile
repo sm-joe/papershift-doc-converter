@@ -24,7 +24,7 @@ ENV PAPERSHIFT_ADDR=:8080 \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        libreoffice \
+        libreoffice libpcre2-8-0 \
         ca-certificates \
         curl \
         fonts-dejavu \
