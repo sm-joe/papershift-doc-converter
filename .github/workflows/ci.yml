@@ -5,7 +5,33 @@ on:
     branches:
       - main
       - develop
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "Dockerfile"
+      - ".dockerignore"
+
+      - "docker/**"
+      - "apps/**"
+      - "engines/**"
+      - "internal/**"
+      - "tests/**"
+      - ".github/workflows/ci.yml"
+
   pull_request:
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker/**"
+      - "apps/**"
+      - "engines/**"
+      - "internal/**"
+      - "tests/**"
+      - ".github/workflows/ci.yml"
 
 permissions:
   contents: read
