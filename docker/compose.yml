@@ -1,6 +1,6 @@
 services:
   papershift:
-    image: ghcr.io/sm-joe/papershift-doc-converter:latest
+    image: ghcr.io/sm-joe/papershift-doc-converter:v1.0.0
     container_name: papershift-api
     restart: unless-stopped
 
@@ -39,7 +39,7 @@ services:
         hard: 8192
 
   web:
-    image: ghcr.io/sm-joe/papershift-doc-converter-web:latest
+    image: ghcr.io/sm-joe/papershift-doc-converter-web:v1.0.0
     container_name: papershift-web
     restart: unless-stopped
     ports:
