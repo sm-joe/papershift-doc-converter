@@ -14,7 +14,9 @@ import (
 
 	"github.com/sm-joe/papershift-doc-converter/internal/converter"
 	"github.com/sm-joe/papershift-doc-converter/internal/detection"
+	"github.com/sm-joe/papershift-doc-converter/internal/docx"
 	"github.com/sm-joe/papershift-doc-converter/internal/formats"
+	"github.com/sm-joe/papershift-doc-converter/internal/image"
 	"github.com/sm-joe/papershift-doc-converter/internal/pdf"
 )
 
@@ -92,7 +94,51 @@ type RotatePDFResponse struct {
 	Output   []byte
 }
 
+type CompressPDFRequest struct {
+	JobID    string
+	Filename string
+	Input    io.Reader
+}
+
+type CompressPDFResponse struct {
+	Job      Job
+	Filename string
+	Output   []byte
+}
+
+type CompressImageRequest struct {
+	JobID    string
+	Filename string
+	Input    io.Reader
+}
+
+type CompressImageResponse struct {
+	Job      Job
+	Filename string
+	Output   []byte
+}
+
+type CompressDOCXRequest struct {
+	JobID    string
+	Filename string
+	Input    io.Reader
+}
+
+type CompressDOCXResponse struct {
+	Job      Job
+	Filename string
+	Output   []byte
+}
+
 func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertResponse, error) {
+	if request.Input == nil {
+		return ConvertResponse{}, fmt.Errorf("input is required")
+	}
+
+	if request.JobID == "" {
+		return ConvertResponse{}, fmt.Errorf("job ID is required")
+	}
+
 	conversionCtx, cancel := context.WithTimeout(
 		ctx,
 		s.conversionTimeout,
@@ -110,7 +156,9 @@ func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertR
 	if err != nil {
 		return ConvertResponse{}, fmt.Errorf("create workspace: %w", err)
 	}
-	defer workspace.Cleanup()
+	defer func() {
+		_ = workspace.Cleanup()
+	}()
 
 	inputPath := filepath.Join(
 		workspace.Input,
@@ -118,6 +166,7 @@ func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertR
 	)
 
 	if err := writeInputLimited(
+		conversionCtx,
 		inputPath,
 		request.Input,
 		s.maxInputSize,
@@ -212,6 +261,13 @@ func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertR
 		}, fmt.Errorf("conversion failed: %w", err)
 	}
 
+	if err := conversionCtx.Err(); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return ConvertResponse{Job: job}, err
+	}
+
 	if output.Len() == 0 {
 		err := fmt.Errorf("conversion produced empty output")
 
@@ -273,11 +329,17 @@ func (s *Service) MergePDF(
 			err,
 		)
 	}
-	defer workspace.Cleanup()
+	defer func() {
+		_ = workspace.Cleanup()
+	}()
 
 	inputPaths := make([]string, 0, len(request.Files))
 
 	for index, file := range request.Files {
+		if file.Input == nil {
+			return MergePDFResponse{}, fmt.Errorf("merge input %d is required", index+1)
+		}
+
 		filename := safeFilename(file.Filename)
 
 		if filename == "." || filename == "" {
@@ -290,6 +352,7 @@ func (s *Service) MergePDF(
 		)
 
 		if err := writeInputLimited(
+			mergeCtx,
 			inputPath,
 			file.Input,
 			s.maxInputSize,
@@ -337,7 +400,9 @@ func (s *Service) MergePDF(
 			Job: job,
 		}, fmt.Errorf("open merged PDF: %w", err)
 	}
-	defer outputFile.Close()
+	defer func() {
+		_ = outputFile.Close()
+	}()
 
 	info, err := outputFile.Stat()
 	if err != nil {
@@ -376,6 +441,13 @@ func (s *Service) MergePDF(
 		}, fmt.Errorf("read merged output: %w", err)
 	}
 
+	if err := mergeCtx.Err(); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return MergePDFResponse{Job: job}, err
+	}
+
 	completedAt := time.Now()
 	job.CompletedAt = &completedAt
 	job.Status = StatusCompleted
@@ -391,6 +463,14 @@ func (s *Service) RotatePDF(
 	ctx context.Context,
 	request RotatePDFRequest,
 ) (RotatePDFResponse, error) {
+	if request.Input == nil {
+		return RotatePDFResponse{}, fmt.Errorf("PDF input is required")
+	}
+
+	if request.JobID == "" {
+		return RotatePDFResponse{}, fmt.Errorf("job ID is required")
+	}
+
 	if request.Rotation != 90 &&
 		request.Rotation != 180 &&
 		request.Rotation != 270 {
@@ -423,7 +503,9 @@ func (s *Service) RotatePDF(
 			err,
 		)
 	}
-	defer workspace.Cleanup()
+	defer func() {
+		_ = workspace.Cleanup()
+	}()
 
 	filename := safeFilename(request.Filename)
 
@@ -437,6 +519,7 @@ func (s *Service) RotatePDF(
 	)
 
 	if err := writeInputLimited(
+		rotateCtx,
 		inputPath,
 		request.Input,
 		s.maxInputSize,
@@ -482,7 +565,9 @@ func (s *Service) RotatePDF(
 			Job: job,
 		}, fmt.Errorf("open rotated PDF: %w", err)
 	}
-	defer outputFile.Close()
+	defer func() {
+		_ = outputFile.Close()
+	}()
 
 	info, err := outputFile.Stat()
 	if err != nil {
@@ -521,6 +606,13 @@ func (s *Service) RotatePDF(
 		}, fmt.Errorf("read rotated output: %w", err)
 	}
 
+	if err := rotateCtx.Err(); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return RotatePDFResponse{Job: job}, err
+	}
+
 	completedAt := time.Now()
 	job.CompletedAt = &completedAt
 	job.Status = StatusCompleted
@@ -532,50 +624,544 @@ func (s *Service) RotatePDF(
 	}, nil
 }
 
-func writeInput(path string, input io.Reader) error {
-	file, err := os.Create(path)
+func (s *Service) CompressPDF(
+	ctx context.Context,
+	req CompressPDFRequest,
+) (CompressPDFResponse, error) {
+	if req.Input == nil {
+		return CompressPDFResponse{}, fmt.Errorf("PDF input is required")
+	}
+
+	if req.JobID == "" {
+		return CompressPDFResponse{}, fmt.Errorf("job ID is required")
+	}
+
+	compressCtx, cancel := context.WithTimeout(
+		ctx,
+		s.conversionTimeout,
+	)
+	defer cancel()
+
+	now := time.Now()
+
+	job := Job{
+		ID:        req.JobID,
+		Status:    StatusPending,
+		CreatedAt: now,
+	}
+
+	workspace, err := CreateWorkspace(
+		s.workspaceRoot,
+		job.ID,
+	)
 	if err != nil {
-		return fmt.Errorf("create input file: %w", err)
+		return CompressPDFResponse{}, fmt.Errorf(
+			"create workspace: %w",
+			err,
+		)
 	}
-	defer file.Close()
+	defer func() {
+		_ = workspace.Cleanup()
+	}()
 
-	if _, err := io.Copy(file, input); err != nil {
-		return fmt.Errorf("write input file: %w", err)
+	filename := safeFilename(req.Filename)
+	if filename == "." || filename == "" {
+		filename = "input.pdf"
 	}
 
-	return nil
+	inputPath := filepath.Join(
+		workspace.Input,
+		filename,
+	)
+
+	if err := writeInputLimited(
+		compressCtx,
+		inputPath,
+		req.Input,
+		s.maxInputSize,
+	); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressPDFResponse{
+			Job: job,
+		}, err
+	}
+
+	outputPath := filepath.Join(
+		workspace.Output,
+		"compressed.pdf",
+	)
+
+	job.Status = StatusProcessing
+
+	startedAt := time.Now()
+	job.StartedAt = &startedAt
+
+	if err := pdf.Compress(
+		compressCtx,
+		inputPath,
+		outputPath,
+	); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressPDFResponse{
+			Job: job,
+		}, fmt.Errorf("compress PDF: %w", err)
+	}
+
+	outputFile, err := os.Open(outputPath)
+	if err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressPDFResponse{
+			Job: job,
+		}, fmt.Errorf("open compressed PDF: %w", err)
+	}
+	defer func() {
+		_ = outputFile.Close()
+	}()
+
+	info, err := outputFile.Stat()
+	if err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressPDFResponse{
+			Job: job,
+		}, fmt.Errorf("stat compressed PDF: %w", err)
+	}
+
+	if info.Size() == 0 {
+		err := fmt.Errorf("compression produced empty output")
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressPDFResponse{
+			Job: job,
+		}, err
+	}
+
+	var output bytes.Buffer
+
+	limitedOutput := &limitedWriter{
+		writer: &output,
+		limit:  s.maxOutputSize,
+	}
+
+	if _, err := io.Copy(limitedOutput, outputFile); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressPDFResponse{
+			Job: job,
+		}, fmt.Errorf("read compressed output: %w", err)
+	}
+
+	if err := compressCtx.Err(); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressPDFResponse{Job: job}, err
+	}
+
+	completedAt := time.Now()
+	job.CompletedAt = &completedAt
+	job.Status = StatusCompleted
+
+	return CompressPDFResponse{
+		Job:      job,
+		Filename: "compressed.pdf",
+		Output:   output.Bytes(),
+	}, nil
+}
+
+func (s *Service) CompressImage(
+	ctx context.Context,
+	request CompressImageRequest,
+) (CompressImageResponse, error) {
+	if request.Input == nil {
+		return CompressImageResponse{}, fmt.Errorf(
+			"image input is required",
+		)
+	}
+
+	if request.JobID == "" {
+		return CompressImageResponse{}, fmt.Errorf(
+			"job ID is required",
+		)
+	}
+
+	compressCtx, cancel := context.WithTimeout(
+		ctx,
+		s.conversionTimeout,
+	)
+	defer cancel()
+
+	now := time.Now()
+
+	job := Job{
+		ID:        request.JobID,
+		Status:    StatusPending,
+		CreatedAt: now,
+	}
+
+	workspace, err := CreateWorkspace(
+		s.workspaceRoot,
+		job.ID,
+	)
+	if err != nil {
+		return CompressImageResponse{}, fmt.Errorf(
+			"create workspace: %w",
+			err,
+		)
+	}
+	defer func() {
+		_ = workspace.Cleanup()
+	}()
+
+	filename := safeFilename(request.Filename)
+
+	if filename == "." || filename == "" {
+		filename = "input"
+	}
+
+	inputPath := filepath.Join(
+		workspace.Input,
+		filename,
+	)
+
+	if err := writeInputLimited(
+		compressCtx,
+		inputPath,
+		request.Input,
+		s.maxInputSize,
+	); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressImageResponse{
+			Job: job,
+		}, err
+	}
+
+	outputPath := filepath.Join(
+		workspace.Output,
+		"compressed"+filepath.Ext(filename),
+	)
+
+	job.Status = StatusProcessing
+
+	startedAt := time.Now()
+	job.StartedAt = &startedAt
+
+	if err := image.Compress(
+		compressCtx,
+		inputPath,
+		outputPath,
+	); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressImageResponse{
+			Job: job,
+		}, fmt.Errorf(
+			"compress image: %w",
+			err,
+		)
+	}
+
+	outputFile, err := os.Open(outputPath)
+	if err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressImageResponse{
+			Job: job,
+		}, fmt.Errorf(
+			"open compressed image: %w",
+			err,
+		)
+	}
+	defer func() {
+		_ = outputFile.Close()
+	}()
+
+	info, err := outputFile.Stat()
+	if err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressImageResponse{
+			Job: job,
+		}, fmt.Errorf(
+			"stat compressed image: %w",
+			err,
+		)
+	}
+
+	if info.Size() == 0 {
+		err := fmt.Errorf(
+			"compression produced empty output",
+		)
+
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressImageResponse{
+			Job: job,
+		}, err
+	}
+
+	var output bytes.Buffer
+
+	limitedOutput := &limitedWriter{
+		writer: &output,
+		limit:  s.maxOutputSize,
+	}
+
+	if _, err := io.Copy(
+		limitedOutput,
+		outputFile,
+	); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressImageResponse{
+			Job: job,
+		}, fmt.Errorf(
+			"read compressed output: %w",
+			err,
+		)
+	}
+
+	if err := compressCtx.Err(); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return CompressImageResponse{Job: job}, err
+	}
+
+	completedAt := time.Now()
+	job.CompletedAt = &completedAt
+	job.Status = StatusCompleted
+
+	return CompressImageResponse{
+		Job:      job,
+		Filename: "compressed" + filepath.Ext(filename),
+		Output:   output.Bytes(),
+	}, nil
+}
+
+func (s *Service) CompressDOCX(
+	ctx context.Context,
+	req CompressDOCXRequest,
+) (CompressDOCXResponse, error) {
+	var response CompressDOCXResponse
+
+	if req.Input == nil {
+		return response, fmt.Errorf("DOCX input is required")
+	}
+
+	if req.JobID == "" {
+		return response, fmt.Errorf("job ID is required")
+	}
+
+	ctx, cancel := context.WithTimeout(
+		ctx,
+		s.conversionTimeout,
+	)
+	defer cancel()
+
+	job := Job{
+		ID:     req.JobID,
+		Status: StatusPending,
+	}
+
+	workspace, err := CreateWorkspace(
+		s.workspaceRoot,
+		job.ID,
+	)
+	if err != nil {
+		return response, fmt.Errorf(
+			"create DOCX workspace: %w",
+			err,
+		)
+	}
+	defer func() {
+		_ = workspace.Cleanup()
+	}()
+
+	inputName := safeFilename(req.Filename)
+
+	inputPath := filepath.Join(
+		workspace.Input,
+		inputName,
+	)
+
+	outputPath := filepath.Join(
+		workspace.Output,
+		"compressed.docx",
+	)
+
+	if err := writeInputLimited(
+		ctx,
+		inputPath,
+		req.Input,
+		s.maxInputSize,
+	); err != nil {
+		return response, fmt.Errorf(
+			"write DOCX input: %w",
+			err,
+		)
+	}
+
+	if err := docx.Compress(
+		ctx,
+		inputPath,
+		outputPath,
+	); err != nil {
+		return response, err
+	}
+
+	outputFile, err := os.Open(outputPath)
+	if err != nil {
+		return response, fmt.Errorf(
+			"open compressed DOCX: %w",
+			err,
+		)
+	}
+	defer func() {
+		_ = outputFile.Close()
+	}()
+
+	info, err := outputFile.Stat()
+	if err != nil {
+		return response, fmt.Errorf(
+			"stat compressed DOCX: %w",
+			err,
+		)
+	}
+
+	if info.Size() == 0 {
+		return response, fmt.Errorf(
+			"compressed DOCX is empty",
+		)
+	}
+
+	var output bytes.Buffer
+
+	writer := limitedWriter{
+		writer: &output,
+		limit:  s.maxOutputSize,
+	}
+
+	if _, err := io.Copy(
+		&writer,
+		outputFile,
+	); err != nil {
+		return response, fmt.Errorf(
+			"read compressed DOCX: %w",
+			err,
+		)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return response, err
+	}
+
+	job.Status = StatusCompleted
+
+	response = CompressDOCXResponse{
+		Job:      job,
+		Filename: "compressed.docx",
+		Output:   output.Bytes(),
+	}
+
+	return response, nil
 }
 
 func writeInputLimited(
+	ctx context.Context,
 	path string,
 	input io.Reader,
 	maxSize int64,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create input file: %w", err)
 	}
 	defer file.Close()
 
-	reader := io.LimitReader(input, maxSize+1)
+	reader := io.LimitReader(
+		&contextReader{
+			ctx:    ctx,
+			reader: input,
+		},
+		maxSize+1,
+	)
 
 	written, err := io.Copy(file, reader)
 	if err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		return fmt.Errorf("write input file: %w", err)
 	}
 
 	if written > maxSize {
+		_ = file.Close()
+		_ = os.Remove(path)
+
 		return fmt.Errorf(
 			"input file exceeds maximum size of %d bytes",
 			maxSize,
 		)
 	}
 
+	if err := ctx.Err(); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+
+		return err
+
+	}
+
 	return nil
 }
 
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r *contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	return r.reader.Read(p)
+}
+
 func safeFilename(name string) string {
-	return filepath.Base(name)
+	name = strings.ReplaceAll(name, `\\`, "/")
+	name = filepath.Base(name)
+
+	if name == "." || name == ".." || name == "" {
+		return "input"
+	}
+
+	return name
 }
 
 func replaceExtension(filename, extension string) string {
@@ -636,8 +1222,12 @@ func (w *limitedWriter) Write(p []byte) (int, error) {
 	}
 
 	if int64(len(p)) > remaining {
-		n, _ := w.writer.Write(p[:remaining])
+		n, err := w.writer.Write(p[:remaining])
 		w.written += int64(n)
+
+		if err != nil {
+			return n, fmt.Errorf("write output: %w", err)
+		}
 
 		return n, fmt.Errorf(
 			"output exceeds maximum size of %d bytes",

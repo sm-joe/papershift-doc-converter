@@ -4,13 +4,13 @@ FROM golang:1.27-bookworm AS builder
 
 WORKDIR /src
 
-COPY go.mod ./
+COPY go.mod go.sum ./
 
 RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN CGO_ENABLED=0 GOOS=linux \
     go build \
     -trimpath \
     -ldflags="-s -w" \
@@ -29,7 +29,7 @@ RUN apt-get update \
         curl \
         fonts-dejavu \
         default-jre libreoffice-java-common \
-        imagemagick librsvg2-bin pandoc poppler-utils \
+        imagemagick librsvg2-bin pandoc poppler-utils ghostscript \
     && rm -rf /var/lib/apt/lists/* \
     && useradd \
         --system \

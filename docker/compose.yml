@@ -1,6 +1,6 @@
 services:
   papershift:
-    image: ghcr.io/sm-joe/papershift-doc-converter:v1.0.0
+    image: ghcr.io/sm-joe/papershift-doc-converter-api:v1.0.0
     container_name: papershift-api
     restart: unless-stopped
 

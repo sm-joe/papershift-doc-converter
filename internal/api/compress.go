@@ -4,13 +4,12 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/sm-joe/papershift-doc-converter/internal/jobs"
 )
 
-func (app *Application) rotatePDFHandler(
+func (app *Application) compressPDFHandler(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
@@ -43,18 +42,6 @@ func (app *Application) rotatePDFHandler(
 		return
 	}
 
-	rotation, err := strconv.Atoi(
-		r.FormValue("rotation"),
-	)
-	if err != nil {
-		http.Error(
-			w,
-			"rotation must be 90, 180, or 270 degrees",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
 	file, err := fileHeader[0].Open()
 	if err != nil {
 		http.Error(
@@ -64,7 +51,9 @@ func (app *Application) rotatePDFHandler(
 		)
 		return
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	jobID, err := newJobID()
 	if err != nil {
@@ -76,13 +65,12 @@ func (app *Application) rotatePDFHandler(
 		return
 	}
 
-	response, err := app.Jobs.RotatePDF(
+	response, err := app.Jobs.CompressPDF(
 		context.Background(),
-		jobs.RotatePDFRequest{
+		jobs.CompressPDFRequest{
 			JobID:    jobID,
 			Filename: fileHeader[0].Filename,
 			Input:    io.Reader(file),
-			Rotation: rotation,
 		},
 	)
 	if err != nil {

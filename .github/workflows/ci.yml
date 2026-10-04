@@ -55,7 +55,16 @@ jobs:
       - name: Download Dependencies
         run: go mod download
 
-      - name: Verify Go 
+      - name: Check Go Formatting
+        run: |
+          unformatted=$(gofmt -l apps engines internal)
+          if [ -n "$unformatted" ]; then
+            echo "The following Go files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Verify Go
         run: go vet ./...
 
       - name: Test Go
@@ -87,6 +96,9 @@ jobs:
 
       - name: Run Lint
         run: npm run lint
+
+      - name: Run Type Check
+        run: npx tsc --noEmit
 
       - name: Run Build
         run: npm run build

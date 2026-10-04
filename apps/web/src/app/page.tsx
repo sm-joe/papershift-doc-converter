@@ -61,6 +61,10 @@ export default function Home() {
   const [rotateMode, setRotateMode] = useState(false);
   const [rotation, setRotation] = useState(90);
   const [rotating, setRotating] = useState(false);
+  const [compressMode, setCompressMode] = useState(false);
+  const [imageCompressMode, setImageCompressMode] = useState(false);
+  const [docxCompressMode, setDocxCompressMode] = useState(false);
+  const [compressing, setCompressing] = useState(false);
 
   useEffect(() => {
     async function loadCapabilities() {
@@ -78,7 +82,7 @@ export default function Home() {
         setCapabilities(data.capabilities);
       } catch (error) {
         console.error(error);
-        
+
         setCapabilitiesError(
           "Conversion formats could not be loaded. Please make sure the API is running.",
         );
@@ -121,7 +125,87 @@ export default function Home() {
     event.preventDefault();
     setDragging(false);
 
-    selectFile(event.dataTransfer.files?.[0]);
+    const droppedFiles = event.dataTransfer.files;
+
+    if (mergeMode) {
+      selectMergeFiles(droppedFiles);
+      return;
+    }
+
+    const selectedFile = droppedFiles?.[0];
+
+    if (rotateMode || compressMode) {
+      if (
+        selectedFile &&
+        (
+          selectedFile.type === "application/pdf" ||
+          extensionOf(selectedFile.name) === "pdf"
+        )
+      ) {
+        selectFile(selectedFile);
+      } else if (selectedFile) {
+        setFile(null);
+        setConversionError(
+          rotateMode
+            ? "Rotate PDF only supports PDF files."
+            : "Compress PDF only supports PDF files.",
+        );
+      }
+      return;
+    }
+
+    if (imageCompressMode) {
+      const extension = selectedFile
+        ? extensionOf(selectedFile.name)
+        : "";
+
+      if (
+        selectedFile &&
+        ["jpg", "jpeg", "png", "webp"].includes(extension)
+      ) {
+        if (docxCompressMode) {
+      const extension = selectedFile
+        ? extensionOf(selectedFile.name)
+        : "";
+
+      if (selectedFile && extension === "docx") {
+        selectFile(selectedFile);
+      } else if (selectedFile) {
+        setFile(null);
+        setConversionError(
+          "Compress DOCX only supports DOCX files.",
+        );
+      }
+      return;
+    }
+
+    selectFile(selectedFile);
+      } else if (selectedFile) {
+        setFile(null);
+        setConversionError(
+          "Compress Images supports JPG, JPEG, PNG, and WebP files.",
+        );
+      }
+      return;
+    }
+
+    if (docxCompressMode) {
+      const extension = selectedFile
+        ? extensionOf(selectedFile.name)
+        : "";
+
+      if (selectedFile && extension === "docx") {
+        selectFile(selectedFile);
+      } else if (selectedFile) {
+        setFile(null);
+        setConversionError(
+          "Compress DOCX only supports DOCX files.",
+        );
+      }
+      return;
+    }
+
+    selectFile(selectedFile);
   }
 
   function resetWorkspace() {
@@ -129,11 +213,16 @@ export default function Home() {
   setOutputFormat("");
   setConversionError("");
   setDownloadUrl("");
+  setMergeMode(false);
+  setRotateMode(false);
+  setCompressMode(false);
+  setImageCompressMode(false);
+  setDocxCompressMode(false);
 
   if (inputRef.current) {
     inputRef.current.value = "";
   }
-} 
+}
 
   async function convertFile() {
     if (!file || !outputFormat) {
@@ -264,6 +353,130 @@ async function rotatePDF() {
   }
 }
 
+async function compressPDF() {
+  if (!file) {
+    return;
+  }
+
+  setCompressing(true);
+  setConversionError("");
+  setDownloadUrl("");
+
+  try {
+    const formData = new FormData();
+
+    formData.append("file", file);
+
+    const response = await fetch(
+      `${API_URL}/api/v1/pdf/compress`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error ?? "PDF compression failed");
+    }
+
+    setDownloadUrl(`${API_URL}${data.output}`);
+  } catch (error) {
+    setConversionError(
+      error instanceof Error
+        ? error.message
+        : "PDF compression failed. Please try again.",
+    );
+  } finally {
+    setCompressing(false);
+  }
+}
+
+async function compressImage() {
+  if (!file) {
+    return;
+  }
+
+  setCompressing(true);
+  setConversionError("");
+  setDownloadUrl("");
+
+  try {
+    const formData = new FormData();
+
+    formData.append("file", file);
+
+    const response = await fetch(
+      `${API_URL}/api/v1/image/compress`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ?? "Image compression failed",
+      );
+    }
+
+    setDownloadUrl(`${API_URL}${data.output}`);
+  } catch (error) {
+    setConversionError(
+      error instanceof Error
+        ? error.message
+        : "Image compression failed. Please try again.",
+    );
+  } finally {
+    setCompressing(false);
+  }
+}
+
+async function compressDOCX() {
+  if (!file) {
+    return;
+  }
+
+  setCompressing(true);
+  setConversionError("");
+  setDownloadUrl("");
+
+  try {
+    const formData = new FormData();
+
+    formData.append("file", file);
+
+    const response = await fetch(
+      `${API_URL}/api/v1/docx/compress`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ?? "DOCX compression failed",
+      );
+    }
+
+    setDownloadUrl(`${API_URL}${data.output}`);
+  } catch (error) {
+    setConversionError(
+      error instanceof Error
+        ? error.message
+        : "DOCX compression failed. Please try again.",
+    );
+  } finally {
+    setCompressing(false);
+  }
+}
+
   const inputFormatID = file
     ? extensionOf(file.name)
     : "";
@@ -386,12 +599,14 @@ async function rotatePDF() {
                       onClick={() => {
                         setMergeMode(false);
                         setRotateMode(false);
+                        setCompressMode(false);
+                        setImageCompressMode(false);
                         setMergeFiles([]);
                         setConversionError("");
                         setDownloadUrl("");
                       }}
                       className={
-                        !mergeMode
+                        !mergeMode && !rotateMode && !compressMode && !imageCompressMode && !docxCompressMode
                         ? "rounded-lg bg-black/5 px-3 py-1.5 font-medium text-black"
                         : "rounded-lg px-3 py-1.5 text-black/40 transition hover:bg-black/5 hover:text-black/70"
                       }
@@ -405,11 +620,13 @@ async function rotatePDF() {
                       onClick={() => {
                         setMergeMode(true);
                         setRotateMode(false);
+                        setCompressMode(false);
+                        setImageCompressMode(false);
+                        setDocxCompressMode(false);
                         setFile(null);
                         setOutputFormat("");
                         setConversionError("");
                         setDownloadUrl("");
-                        setTimeout(() => mergeInputRef.current?.click(), 0);
                       }}
                       className={
                         mergeMode
@@ -419,20 +636,22 @@ async function rotatePDF() {
                     >
                       Merge PDFs
                     </button>
-                    
+
                     <span className="text-black/20">·</span>
                     <button
                       type="button"
                       onClick={() => {
                         setMergeMode(false);
                         setRotateMode(true);
+                        setCompressMode(false);
+                        setImageCompressMode(false);
+                        setDocxCompressMode(false);
                         setMergeFiles([]);
                         setFile(null);
                         setOutputFormat("");
                         setConversionError("");
                         setDownloadUrl("");
                         setRotation(90);
-                        setTimeout(() => inputRef.current?.click(), 0);
                       }}
                       className={
                         rotateMode
@@ -441,6 +660,79 @@ async function rotatePDF() {
                       }
                     >
                       Rotate PDF
+                    </button>
+
+                    <span className="text-black/20">·</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMergeMode(false);
+                        setRotateMode(false);
+                        setCompressMode(true);
+                        setImageCompressMode(false);
+                        setDocxCompressMode(false);
+                        setMergeFiles([]);
+                        setFile(null);
+                        setOutputFormat("");
+                        setConversionError("");
+                        setDownloadUrl("");
+                      }}
+                      className={
+                        compressMode
+                          ? "rounded-lg bg-[#dce9df] px-3 py-1.5 font-medium text-[#31513d]"
+                          : "rounded-lg px-3 py-1.5 text-black/40 transition hover:bg-black/5 hover:text-black/70"
+                      }
+                    >
+                      Compress PDF
+                    </button>
+
+                    <span className="text-black/20">·</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMergeMode(false);
+                        setRotateMode(false);
+                        setCompressMode(false);
+                        setImageCompressMode(true);
+                        setDocxCompressMode(false);
+                        setMergeFiles([]);
+                        setFile(null);
+                        setOutputFormat("");
+                        setConversionError("");
+                        setDownloadUrl("");
+                      }}
+                      className={
+                        imageCompressMode
+                          ? "rounded-lg bg-[#dce9df] px-3 py-1.5 font-medium text-[#31513d]"
+                          : "rounded-lg px-3 py-1.5 text-black/40 transition hover:bg-black/5 hover:text-black/70"
+                      }
+                    >
+                      Compress Images
+                    </button>
+
+
+                    <span className="text-black/20">·</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMergeMode(false);
+                        setRotateMode(false);
+                        setCompressMode(false);
+                        setImageCompressMode(false);
+                        setDocxCompressMode(true);
+                        setMergeFiles([]);
+                        setFile(null);
+                        setOutputFormat("");
+                        setConversionError("");
+                        setDownloadUrl("");
+                      }}
+                      className={
+                        docxCompressMode
+                          ? "rounded-lg bg-[#dce9df] px-3 py-1.5 font-medium text-[#31513d]"
+                          : "rounded-lg px-3 py-1.5 text-black/40 transition hover:bg-black/5 hover:text-black/70"
+                      }
+                    >
+                      Compress DOCX
                     </button>
 
 
@@ -463,9 +755,12 @@ async function rotatePDF() {
                 onDragLeave={() => setDragging(false)}
                 onDrop={handleDrop}
                 onClick={() => {
-                  if (!rotateMode) {
-                    inputRef.current?.click();
+                  if (mergeMode) {
+                    mergeInputRef.current?.click();
+                    return;
                   }
+
+                  inputRef.current?.click();
                 }}
                 className={`group relative cursor-pointer overflow-hidden rounded-[22px] border transition ${
                   dragging
@@ -496,14 +791,22 @@ async function rotatePDF() {
 
                     className="hidden"
 
-                    accept={rotateMode ? "application/pdf,.pdf" : undefined}
+                    accept={
+                      rotateMode || compressMode
+                        ? "application/pdf,.pdf"
+                        : imageCompressMode
+                          ? "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                          : docxCompressMode
+                            ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
+                            : undefined
+                    }
 
                     onChange={(event) => {
 
                       const selectedFile = event.target.files?.[0];
 
 
-                      if (rotateMode) {
+                      if (rotateMode || compressMode) {
 
                         if (
 
@@ -525,10 +828,43 @@ async function rotatePDF() {
 
                           setFile(null);
 
-                          setConversionError("Rotate PDF only supports PDF files.");
+                          setConversionError(
+                            rotateMode
+                              ? "Rotate PDF only supports PDF files."
+                              : "Compress PDF only supports PDF files.",
+                          );
 
                         }
 
+                      } else if (imageCompressMode) {
+                        const extension = selectedFile
+                          ? extensionOf(selectedFile.name)
+                          : "";
+
+                        if (
+                          selectedFile &&
+                          ["jpg", "jpeg", "png", "webp"].includes(extension)
+                        ) {
+                          selectFile(selectedFile);
+                        } else if (selectedFile) {
+                          setFile(null);
+                          setConversionError(
+                            "Compress Images supports JPG, JPEG, PNG, and WebP files.",
+                          );
+                        }
+                      } else if (docxCompressMode) {
+                        const extension = selectedFile
+                          ? extensionOf(selectedFile.name)
+                          : "";
+
+                        if (selectedFile && extension === "docx") {
+                          selectFile(selectedFile);
+                        } else if (selectedFile) {
+                          setFile(null);
+                          setConversionError(
+                            "Compress DOCX only supports DOCX files.",
+                          );
+                        }
                       } else {
 
                         selectFile(selectedFile);
@@ -605,17 +941,19 @@ async function rotatePDF() {
 
                 <div className="absolute bottom-4 left-5 right-5 flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-black/30">
                   <span>
-                    {mergeMode
-                      ? "PDF · PDF · PDF"
-                      : rotateMode
-                        ? "PDF"
-                        : "PDF · DOCX · XLSX · PPTX"}
+                    {mergeMode || rotateMode || compressMode
+                      ? "PDF"
+                      : imageCompressMode
+                        ? "JPG · PNG · WEBP"
+                        : docxCompressMode
+                          ? "DOCX"
+                          : "PDF · DOCX · XLSX · PPTX"}
                   </span>
 
                   <span>Max size varies</span>
                 </div>
               </div>
-              
+
               {rotateMode && file && (
                 <div className="mt-4 rounded-[18px] border border-black/10 bg-[#f7f5ef] p-4">
                   <div className="mb-3">
@@ -632,10 +970,7 @@ async function rotatePDF() {
                       <button
                         key={degrees}
                         type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setRotation(degrees);
-                        }}
+                        onClick={() => setRotation(degrees)}
                         className={
                           rotation === degrees
                             ? "rounded-xl bg-[#dce9df] px-4 py-3 text-sm font-medium text-[#31513d]"
@@ -650,10 +985,7 @@ async function rotatePDF() {
                   <button
                     type="button"
                     disabled={rotating}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      rotatePDF();
-                    }}
+                    onClick={rotatePDF}
                     className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171717] px-6 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5 hover:bg-black disabled:cursor-not-allowed disabled:bg-black/20"
                   >
                     {rotating ? (
@@ -755,7 +1087,200 @@ async function rotatePDF() {
                 </div>
               )}
 
-              {file && !rotateMode && (
+              {compressMode && file && (
+                <div className="mt-4 rounded-[18px] border border-black/10 bg-[#f7f5ef] p-4">
+                  <div className="mb-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black/35">
+                      Compress PDF
+                    </p>
+                    <p className="mt-1 truncate text-sm text-black/45">
+                      {file.name}
+                    </p>
+                    <p className="mt-1 text-xs text-black/35">
+                      {formatFileSize(file.size)} · Ghostscript compression
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={compressing}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      compressPDF();
+                    }}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171717] px-6 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5 hover:bg-black disabled:cursor-not-allowed disabled:bg-black/20"
+                  >
+                    {compressing ? (
+                      <>
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        Compressing...
+                      </>
+                    ) : (
+                      "Compress PDF →"
+                    )}
+                  </button>
+
+                  {conversionError && (
+                    <div
+                      role="alert"
+                      className="mt-3 rounded-xl border border-[#dfcfc4] bg-[#fff8f3] px-4 py-3 text-sm text-[#795e50]"
+                    >
+                      {conversionError}
+                    </div>
+                  )}
+
+                  {downloadUrl && (
+                    <div className="mt-3 rounded-xl border border-[#b9cbbd] bg-[#edf5ef] p-4">
+                      <p className="text-sm font-medium text-[#31513d]">
+                        Your compressed PDF is ready.
+                      </p>
+
+                      <a
+                        href={downloadUrl}
+                        download="compressed.pdf"
+                        className="mt-3 inline-flex rounded-xl bg-[#31513d] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#263f30]"
+                      >
+                        Download compressed PDF →
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {imageCompressMode && file && (
+                <div className="mt-4 rounded-[18px] border border-black/10 bg-[#f7f5ef] p-4">
+                  <div className="mb-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black/35">
+                      Compress Image
+                    </p>
+                    <p className="mt-1 truncate text-sm text-black/45">
+                      {file.name}
+                    </p>
+                    <p className="mt-1 text-xs text-black/35">
+                      {formatFileSize(file.size)} · ImageMagick compression
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={compressing}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      compressImage();
+                    }}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171717] px-6 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5 hover:bg-black disabled:cursor-not-allowed disabled:bg-black/20"
+                  >
+                    {compressing ? (
+                      <>
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        Compressing...
+                      </>
+                    ) : (
+                      "Compress Image →"
+                    )}
+                  </button>
+
+                  {conversionError && (
+                    <div
+                      role="alert"
+                      className="mt-3 rounded-xl border border-[#dfcfc4] bg-[#fff8f3] px-4 py-3 text-sm text-[#795e50]"
+                    >
+                      {conversionError}
+                    </div>
+                  )}
+
+                  {downloadUrl && (
+                    <div
+                      onClick={(event) => event.stopPropagation()}
+                      className="mt-3 rounded-xl border border-[#b9cbbd] bg-[#edf5ef] p-4"
+                    >
+
+                      <p className="text-sm font-medium text-[#31513d]">
+                        Your compressed image is ready.
+                      </p>
+
+                      <a
+                        href={downloadUrl}
+                        download="compressed-image"
+                        onClick={(event) => event.stopPropagation()}
+                        className="mt-3 inline-flex rounded-xl bg-[#31513d] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#263f30]"
+                      >
+                        Download compressed image →
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {docxCompressMode && file && (
+                <div className="mt-4 rounded-[18px] border border-black/10 bg-[#f7f5ef] p-4">
+                  <div className="mb-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black/35">
+                      Compress DOCX
+                    </p>
+                    <p className="mt-1 truncate text-sm text-black/45">
+                      {file.name}
+                    </p>
+                    <p className="mt-1 text-xs text-black/35">
+                      {formatFileSize(file.size)} · DOCX package compression
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={compressing}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      compressDOCX();
+                    }}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171717] px-6 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5 hover:bg-black disabled:cursor-not-allowed disabled:bg-black/20"
+                  >
+                    {compressing ? (
+                      <>
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        Compressing...
+                      </>
+                    ) : (
+                      "Compress DOCX →"
+                    )}
+                  </button>
+
+                  {conversionError && (
+                    <div
+                      role="alert"
+                      className="mt-3 rounded-xl border border-[#dfcfc4] bg-[#fff8f3] px-4 py-3 text-sm text-[#795e50]"
+                    >
+                      {conversionError}
+                    </div>
+                  )}
+
+                  {downloadUrl && (
+                    <div
+                      onClick={(event) => event.stopPropagation()}
+                      className="mt-3 rounded-xl border border-[#b9cbbd] bg-[#edf5ef] p-4"
+                    >
+                      <p className="text-sm font-medium text-[#31513d]">
+                        Your compressed DOCX is ready.
+                      </p>
+
+                      <a
+                        href={downloadUrl}
+                        download="compressed.docx"
+                        onClick={(event) => event.stopPropagation()}
+                        className="mt-3 inline-flex rounded-xl bg-[#31513d] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#263f30]"
+                      >
+                        Download compressed DOCX →
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {file &&
+                !rotateMode &&
+                !compressMode &&
+                !imageCompressMode &&
+                !docxCompressMode && (
                 <>
                   <div className="mt-4 rounded-[18px] border border-black/10 bg-[#f7f5ef] p-4">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
@@ -878,29 +1403,6 @@ async function rotatePDF() {
           )}
         </div>
 
-            <div className="absolute -right-5 -top-7 hidden w-48 rotate-3 rounded-2xl border border-black/10 bg-[#e0eadf] p-4 shadow-[0_15px_30px_rgba(40,50,40,0.08)] sm:block">
-              <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#55705d]">
-                Supported today
-              </div>
-
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  "PDF",
-                  "DOCX",
-                  "XLSX",
-                  "PPTX",
-                  "PNG",
-                  "JPG",
-                ].map((format) => (
-                  <span
-                    key={format}
-                    className="rounded-md bg-white/70 px-2 py-1 text-[10px] font-medium text-[#405247]"
-                  >
-                    {format}
-                  </span>
-                ))}
-              </div>
-            </div>
           </div>
         </section>
 

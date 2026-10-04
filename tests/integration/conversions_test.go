@@ -40,12 +40,12 @@ endobj
 endobj
 xref
 0 6
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000279 00000 n 
-0000000373 00000 n 
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+0000000279 00000 n
+0000000373 00000 n
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
@@ -772,7 +772,7 @@ func downloadOutput(t *testing.T, outputPath string) []byte {
 
 	if response.Header.Get("Content-Type") == "" {
 		t.Fatal("download response does not contain Content-Type")
-	}	
+	}
 
 	data, err := io.ReadAll(response.Body)
 	if err != nil {

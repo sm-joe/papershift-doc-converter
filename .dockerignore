@@ -31,3 +31,12 @@ build/
 
 Dockerfile*
 docker-compose*.yml
+
+# Go
+go.work
+go.work.sum
+
+# Test / tooling artifacts
+*.out
+*.prof
+*.sarif

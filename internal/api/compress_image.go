@@ -4,13 +4,14 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"strconv"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sm-joe/papershift-doc-converter/internal/jobs"
 )
 
-func (app *Application) rotatePDFHandler(
+func (app *Application) compressImageHandler(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
@@ -37,19 +38,26 @@ func (app *Application) rotatePDFHandler(
 	if len(fileHeader) != 1 {
 		http.Error(
 			w,
-			"exactly one PDF file is required",
+			"exactly one image file is required",
 			http.StatusBadRequest,
 		)
 		return
 	}
 
-	rotation, err := strconv.Atoi(
-		r.FormValue("rotation"),
+	filename := fileHeader[0].Filename
+	extension := strings.ToLower(
+		strings.TrimPrefix(
+			filepath.Ext(filename),
+			".",
+		),
 	)
-	if err != nil {
+
+	switch extension {
+	case "jpg", "jpeg", "png", "webp":
+	default:
 		http.Error(
 			w,
-			"rotation must be 90, 180, or 270 degrees",
+			"only JPG, JPEG, PNG, and WebP images are supported",
 			http.StatusBadRequest,
 		)
 		return
@@ -64,7 +72,9 @@ func (app *Application) rotatePDFHandler(
 		)
 		return
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	jobID, err := newJobID()
 	if err != nil {
@@ -76,13 +86,12 @@ func (app *Application) rotatePDFHandler(
 		return
 	}
 
-	response, err := app.Jobs.RotatePDF(
+	response, err := app.Jobs.CompressImage(
 		context.Background(),
-		jobs.RotatePDFRequest{
+		jobs.CompressImageRequest{
 			JobID:    jobID,
-			Filename: fileHeader[0].Filename,
+			Filename: filename,
 			Input:    io.Reader(file),
-			Rotation: rotation,
 		},
 	)
 	if err != nil {
@@ -104,6 +113,8 @@ func (app *Application) rotatePDFHandler(
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{
 		"id":     response.Job.ID,
 		"status": response.Job.Status,
-		"output": "/api/v1/conversions/" + response.Job.ID + "/download",
+		"output": "/api/v1/conversions/" +
+			response.Job.ID +
+			"/download",
 	})
 }
