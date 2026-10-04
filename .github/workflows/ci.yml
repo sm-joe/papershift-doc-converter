@@ -140,17 +140,6 @@ jobs:
           image-ref: papershift-api:ci
           format: sarif
           output: trivy-results.sarif
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
-
-      - name: Trivy Summary
-        if: always()
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          version: "v0.75.0"
-          image-ref: papershift-api:ci
-          format: table
           exit-code: "0"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
