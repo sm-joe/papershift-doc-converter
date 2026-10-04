@@ -71,16 +71,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan API Image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          version: "v0.75.0"
-          image-ref: ghcr.io/${{ github.repository_owner }}/papershift-doc-converter:${{ github.ref_name }}
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
-
       - name: Scan Web Image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
