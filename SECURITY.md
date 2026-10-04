@@ -158,4 +158,4 @@ Third-party software used by PaperShift may have its own security policies and v
 
 ## Acknowledgements
 
-We appreciate responsible
+We appreciate responsible security researchers and contributors who help improve the security of PaperShift through coordinated vulnerability disclosure.
