@@ -44,6 +44,7 @@ function formatFileSize(bytes: number): string {
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const mergeInputRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -54,6 +55,12 @@ export default function Home() {
   const [converting, setConverting] = useState(false);
   const [conversionError, setConversionError] = useState("");
   const [downloadUrl, setDownloadUrl] = useState("");
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeFiles, setMergeFiles] = useState<File[]>([]);
+  const [merging, setMerging] = useState(false);
+  const [rotateMode, setRotateMode] = useState(false);
+  const [rotation, setRotation] = useState(90);
+  const [rotating, setRotating] = useState(false);
 
   useEffect(() => {
     async function loadCapabilities() {
@@ -93,6 +100,22 @@ export default function Home() {
     setConversionError("");
     setDownloadUrl("");
   }
+
+  function selectMergeFiles(selectedFiles: FileList | null) {
+  if (!selectedFiles) {
+    return;
+  }
+
+  const pdfFiles = Array.from(selectedFiles).filter(
+    (selectedFile) =>
+      selectedFile.type === "application/pdf" ||
+      extensionOf(selectedFile.name) === "pdf",
+  );
+
+  setMergeFiles(pdfFiles);
+  setConversionError("");
+  setDownloadUrl("");
+}
 
   function handleDrop(event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -157,6 +180,89 @@ export default function Home() {
       setConverting(false);
     }
   }
+
+  async function mergePDFs() {
+  if (mergeFiles.length < 2) {
+    return;
+  }
+
+  setMerging(true);
+  setConversionError("");
+  setDownloadUrl("");
+
+  try {
+    const formData = new FormData();
+
+    mergeFiles.forEach((mergeFile) => {
+      formData.append("files", mergeFile);
+    });
+
+    const response = await fetch(
+      `${API_URL}/api/v1/pdf/merge`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error ?? "PDF merge failed");
+    }
+
+    setDownloadUrl(`${API_URL}${data.output}`);
+  } catch (error) {
+    setConversionError(
+      error instanceof Error
+        ? error.message
+        : "PDF merge failed. Please try again.",
+    );
+  } finally {
+    setMerging(false);
+  }
+}
+
+async function rotatePDF() {
+  if (!file) {
+    return;
+  }
+
+  setRotating(true);
+  setConversionError("");
+  setDownloadUrl("");
+
+  try {
+    const formData = new FormData();
+
+    formData.append("file", file);
+    formData.append("rotation", String(rotation));
+
+    const response = await fetch(
+      `${API_URL}/api/v1/pdf/rotate`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error ?? "PDF rotation failed");
+    }
+
+    setDownloadUrl(`${API_URL}${data.output}`);
+  } catch (error) {
+    setConversionError(
+      error instanceof Error
+        ? error.message
+        : "PDF rotation failed. Please try again.",
+    );
+  } finally {
+    setRotating(false);
+  }
+}
 
   const inputFormatID = file
     ? extensionOf(file.name)
@@ -274,9 +380,72 @@ export default function Home() {
                     Conversion desk
                   </p>
 
-                  <p className="mt-1 text-sm text-black/45">
-                    Start with one file
-                  </p>
+                  <div className="mt-1 flex items-center gap-2 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMergeMode(false);
+                        setRotateMode(false);
+                        setMergeFiles([]);
+                        setConversionError("");
+                        setDownloadUrl("");
+                      }}
+                      className={
+                        !mergeMode
+                        ? "rounded-lg bg-black/5 px-3 py-1.5 font-medium text-black"
+                        : "rounded-lg px-3 py-1.5 text-black/40 transition hover:bg-black/5 hover:text-black/70"
+                      }
+                    >
+                      Convert Files
+                    </button>
+
+                    <span className="text-black/20">·</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMergeMode(true);
+                        setRotateMode(false);
+                        setFile(null);
+                        setOutputFormat("");
+                        setConversionError("");
+                        setDownloadUrl("");
+                        setTimeout(() => mergeInputRef.current?.click(), 0);
+                      }}
+                      className={
+                        mergeMode
+                        ? "rounded-lg bg-[#dce9df] px-3 py-1.5 font-medium text-[#31513d]"
+                        : "rounded-lg px-3 py-1.5 text-black/40 transition hover:bg-black/5 hover:text-black/70"
+                      }
+                    >
+                      Merge PDFs
+                    </button>
+                    
+                    <span className="text-black/20">·</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMergeMode(false);
+                        setRotateMode(true);
+                        setMergeFiles([]);
+                        setFile(null);
+                        setOutputFormat("");
+                        setConversionError("");
+                        setDownloadUrl("");
+                        setRotation(90);
+                        setTimeout(() => inputRef.current?.click(), 0);
+                      }}
+                      className={
+                        rotateMode
+                          ? "rounded-lg bg-[#dce9df] px-3 py-1.5 font-medium text-[#31513d]"
+                          : "rounded-lg px-3 py-1.5 text-black/40 transition hover:bg-black/5 hover:text-black/70"
+                      }
+                    >
+                      Rotate PDF
+                    </button>
+
+
+                  </div>
+                </div>
                 </div>
 
                 <div className="flex gap-1.5">
@@ -293,7 +462,11 @@ export default function Home() {
                 }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={handleDrop}
-                onClick={() => inputRef.current?.click()}
+                onClick={() => {
+                  if (!rotateMode) {
+                    inputRef.current?.click();
+                  }
+                }}
                 className={`group relative cursor-pointer overflow-hidden rounded-[22px] border transition ${
                   dragging
                     ? "border-[#557361] bg-[#edf5ef]"
@@ -302,14 +475,71 @@ export default function Home() {
                       : "border-black/10 bg-[#f7f5ef] hover:border-black/20 hover:bg-[#f3f0e8]"
                 }`}
               >
-                <input
-                  ref={inputRef}
+                {mergeMode ? (
+                  <input
+                  ref={mergeInputRef}
                   type="file"
                   className="hidden"
+                  multiple
+                  accept="application/pdf,.pdf"
                   onChange={(event) =>
-                    selectFile(event.target.files?.[0])
+                    selectMergeFiles(event.target.files)
                   }
                 />
+                ) : (
+
+                  <input
+
+                    ref={inputRef}
+
+                    type="file"
+
+                    className="hidden"
+
+                    accept={rotateMode ? "application/pdf,.pdf" : undefined}
+
+                    onChange={(event) => {
+
+                      const selectedFile = event.target.files?.[0];
+
+
+                      if (rotateMode) {
+
+                        if (
+
+                          selectedFile &&
+
+                          (
+
+                            selectedFile.type === "application/pdf" ||
+
+                            extensionOf(selectedFile.name) === "pdf"
+
+                          )
+
+                        ) {
+
+                          selectFile(selectedFile);
+
+                        } else if (selectedFile) {
+
+                          setFile(null);
+
+                          setConversionError("Rotate PDF only supports PDF files.");
+
+                        }
+
+                      } else {
+
+                        selectFile(selectedFile);
+
+                      }
+
+                    }}
+
+                  />
+
+                )}
 
                 <div className="relative flex min-h-[270px] flex-col items-center justify-center px-6 py-12 text-center">
                   <div
@@ -351,29 +581,181 @@ export default function Home() {
                           : " · Format not supported"}
                       </p>
                     </>
-                 ) : (
+                 ) : mergeMode ? (
                   <>
                     <p className="text-lg font-semibold tracking-tight">
-                      Drop your file here
+                      Drop your PDFs here
                     </p>
 
                     <p className="mt-2 text-sm text-black/40">
-                      or click anywhere in this area to browse
+                      or click anywhere in this area to select multiple PDFs
                     </p>
                   </>
+                ) : (
+                  <>
+                  <p className="text-lg font-semibold tracking-tight">
+                    Drop your file here
+                  </p>
+
+                  <p className="mt-2 text-sm text-black/40">
+                    or click anywhere in this area to browse
+                  </p>
+                  </>
                 )}
-                </div>
 
                 <div className="absolute bottom-4 left-5 right-5 flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-black/30">
                   <span>
-                    PDF · DOCX · XLSX · PPTX
+                    {mergeMode
+                      ? "PDF · PDF · PDF"
+                      : rotateMode
+                        ? "PDF"
+                        : "PDF · DOCX · XLSX · PPTX"}
                   </span>
 
                   <span>Max size varies</span>
                 </div>
               </div>
+              
+              {rotateMode && file && (
+                <div className="mt-4 rounded-[18px] border border-black/10 bg-[#f7f5ef] p-4">
+                  <div className="mb-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black/35">
+                      Rotate PDF
+                    </p>
+                    <p className="mt-1 truncate text-sm text-black/45">
+                      {file.name}
+                    </p>
+                  </div>
 
-              {file && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {[90, 180, 270].map((degrees) => (
+                      <button
+                        key={degrees}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setRotation(degrees);
+                        }}
+                        className={
+                          rotation === degrees
+                            ? "rounded-xl bg-[#dce9df] px-4 py-3 text-sm font-medium text-[#31513d]"
+                            : "rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/55 transition hover:border-black/20 hover:text-black"
+                        }
+                      >
+                        {degrees}°
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={rotating}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      rotatePDF();
+                    }}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171717] px-6 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5 hover:bg-black disabled:cursor-not-allowed disabled:bg-black/20"
+                  >
+                    {rotating ? (
+                      <>
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        Rotating...
+                      </>
+                    ) : (
+                      "Rotate PDF →"
+                    )}
+                  </button>
+
+                  {conversionError && (
+                    <div
+                      role="alert"
+                      className="mt-3 rounded-xl border border-[#dfcfc4] bg-[#fff8f3] px-4 py-3 text-sm text-[#795e50]"
+                    >
+                      {conversionError}
+                    </div>
+                  )}
+
+                  {downloadUrl && (
+                    <div className="mt-3 rounded-xl border border-[#b9cbbd] bg-[#edf5ef] p-4">
+                      <p className="text-sm font-medium text-[#31513d]">
+                        Your rotated PDF is ready.
+                      </p>
+
+                      <a
+                        href={downloadUrl}
+                        download="rotated.pdf"
+                        className="mt-3 inline-flex rounded-xl bg-[#31513d] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#263f30]"
+                      >
+                        Download rotated PDF →
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {mergeMode && mergeFiles.length > 0 && (
+                <div className="mt-4 rounded-[18px] border border-black/10 bg-[#f7f5ef] p-4">
+                  <div className="mb-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black/35">
+                      PDFs to merge
+                    </p>
+                    <p className="mt-1 text-sm text-black/45">
+                      {mergeFiles.length} PDF{mergeFiles.length === 1 ? "" : "s"} selected
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    {mergeFiles.map((mergeFile, index) => (
+                      <div
+                        key={`${mergeFile.name}-${index}`}
+                        className="flex items-center justify-between rounded-xl border border-black/10 bg-white px-4 py-3"
+                      >
+                        <span className="truncate text-sm font-medium">
+                          {index + 1}. {mergeFile.name}
+                        </span>
+
+                        <span className="ml-3 shrink-0 text-xs text-black/35">
+                          {formatFileSize(mergeFile.size)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={mergeFiles.length < 2 || merging}
+                    onClick={mergePDFs}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171717] px-6 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5 hover:bg-black disabled:cursor-not-allowed disabled:bg-black/20"
+                  >
+                    {merging ? (
+                      <>
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        Merging...
+                      </>
+                    ) : (
+                      "Merge PDFs →"
+                    )}
+                  </button>
+
+                  {mergeMode && downloadUrl && (
+                    <div className="mt-6 rounded-2xl border border-black/10 bg-black/[0.02] px-5 py-4">
+                      <p className="text-sm font-medium text-black">
+                        Your merged PDF is ready.
+                      </p>
+
+                      <a
+                        href={downloadUrl}
+                        download="merged.pdf"
+                        className="mt-3 inline-flex rounded-xl bg-black px-4 py-2 text-sm font-medium text-white transition hover:-translate-y-0.5 hover:bg-black/80"
+                      >
+                        Download merged PDF →
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {file && !rotateMode && (
                 <>
                   <div className="mt-4 rounded-[18px] border border-black/10 bg-[#f7f5ef] p-4">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-end">

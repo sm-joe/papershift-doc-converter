@@ -18,6 +18,8 @@ func NewHandler(app *Application) http.Handler {
 	mux.HandleFunc("/api/v1/capabilities", app.capabilitiesHandler)
 	mux.HandleFunc("/api/v1/conversions", app.conversionsHandler)
 	mux.HandleFunc("/api/v1/conversions/", app.downloadHandler)
+	mux.HandleFunc("/api/v1/pdf/merge", app.mergePDFHandler)
+	mux.HandleFunc("/api/v1/pdf/rotate", app.rotatePDFHandler)
 
 	return corsMiddleware(mux)
 }

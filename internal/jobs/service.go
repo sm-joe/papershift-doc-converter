@@ -8,22 +8,23 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
-	"strconv"
 
 	"github.com/sm-joe/papershift-doc-converter/internal/converter"
 	"github.com/sm-joe/papershift-doc-converter/internal/detection"
 	"github.com/sm-joe/papershift-doc-converter/internal/formats"
+	"github.com/sm-joe/papershift-doc-converter/internal/pdf"
 )
 
 type Service struct {
-	workspaceRoot string
-	detector      *detection.Detector
-	converters    *converter.Registry
+	workspaceRoot     string
+	detector          *detection.Detector
+	converters        *converter.Registry
 	conversionTimeout time.Duration
-	maxInputSize int64
-	maxOutputSize int64
+	maxInputSize      int64
+	maxOutputSize     int64
 }
 
 func NewService(
@@ -57,6 +58,35 @@ type ConvertRequest struct {
 }
 
 type ConvertResponse struct {
+	Job      Job
+	Filename string
+	Output   []byte
+}
+
+type MergePDFRequest struct {
+	JobID string
+	Files []MergePDFFile
+}
+
+type MergePDFFile struct {
+	Filename string
+	Input    io.Reader
+}
+
+type MergePDFResponse struct {
+	Job      Job
+	Filename string
+	Output   []byte
+}
+
+type RotatePDFRequest struct {
+	JobID    string
+	Filename string
+	Input    io.Reader
+	Rotation int
+}
+
+type RotatePDFResponse struct {
 	Job      Job
 	Filename string
 	Output   []byte
@@ -183,15 +213,15 @@ func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertR
 	}
 
 	if output.Len() == 0 {
-	err := fmt.Errorf("conversion produced empty output")
+		err := fmt.Errorf("conversion produced empty output")
 
-	job.Status = StatusFailed
-	job.Error = err.Error()
+		job.Status = StatusFailed
+		job.Error = err.Error()
 
-	return ConvertResponse{
-		Job: job,
-	}, err
-}
+		return ConvertResponse{
+			Job: job,
+		}, err
+	}
 
 	completedAt := time.Now()
 	job.CompletedAt = &completedAt
@@ -205,6 +235,299 @@ func (s *Service) Convert(ctx context.Context, request ConvertRequest) (ConvertR
 	return ConvertResponse{
 		Job:      job,
 		Filename: outputFilename,
+		Output:   output.Bytes(),
+	}, nil
+}
+
+func (s *Service) MergePDF(
+	ctx context.Context,
+	request MergePDFRequest,
+) (MergePDFResponse, error) {
+	if len(request.Files) < 2 {
+		return MergePDFResponse{}, fmt.Errorf(
+			"merge requires at least two PDF files",
+		)
+	}
+
+	mergeCtx, cancel := context.WithTimeout(
+		ctx,
+		s.conversionTimeout,
+	)
+	defer cancel()
+
+	now := time.Now()
+
+	job := Job{
+		ID:        request.JobID,
+		Status:    StatusPending,
+		CreatedAt: now,
+	}
+
+	workspace, err := CreateWorkspace(
+		s.workspaceRoot,
+		job.ID,
+	)
+	if err != nil {
+		return MergePDFResponse{}, fmt.Errorf(
+			"create workspace: %w",
+			err,
+		)
+	}
+	defer workspace.Cleanup()
+
+	inputPaths := make([]string, 0, len(request.Files))
+
+	for index, file := range request.Files {
+		filename := safeFilename(file.Filename)
+
+		if filename == "." || filename == "" {
+			filename = fmt.Sprintf("input-%d.pdf", index+1)
+		}
+
+		inputPath := filepath.Join(
+			workspace.Input,
+			fmt.Sprintf("%d-%s", index+1, filename),
+		)
+
+		if err := writeInputLimited(
+			inputPath,
+			file.Input,
+			s.maxInputSize,
+		); err != nil {
+			job.Status = StatusFailed
+			job.Error = err.Error()
+
+			return MergePDFResponse{
+				Job: job,
+			}, err
+		}
+
+		inputPaths = append(inputPaths, inputPath)
+	}
+
+	outputPath := filepath.Join(
+		workspace.Output,
+		"merged.pdf",
+	)
+
+	job.Status = StatusProcessing
+
+	startedAt := time.Now()
+	job.StartedAt = &startedAt
+
+	if err := pdf.Merge(
+		mergeCtx,
+		inputPaths,
+		outputPath,
+	); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return MergePDFResponse{
+			Job: job,
+		}, fmt.Errorf("merge PDFs: %w", err)
+	}
+
+	outputFile, err := os.Open(outputPath)
+	if err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return MergePDFResponse{
+			Job: job,
+		}, fmt.Errorf("open merged PDF: %w", err)
+	}
+	defer outputFile.Close()
+
+	info, err := outputFile.Stat()
+	if err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return MergePDFResponse{
+			Job: job,
+		}, fmt.Errorf("stat merged PDF: %w", err)
+	}
+
+	if info.Size() == 0 {
+		err := fmt.Errorf("merge produced empty output")
+
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return MergePDFResponse{
+			Job: job,
+		}, err
+	}
+
+	var output bytes.Buffer
+
+	limitedOutput := &limitedWriter{
+		writer: &output,
+		limit:  s.maxOutputSize,
+	}
+
+	if _, err := io.Copy(limitedOutput, outputFile); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return MergePDFResponse{
+			Job: job,
+		}, fmt.Errorf("read merged output: %w", err)
+	}
+
+	completedAt := time.Now()
+	job.CompletedAt = &completedAt
+	job.Status = StatusCompleted
+
+	return MergePDFResponse{
+		Job:      job,
+		Filename: "merged.pdf",
+		Output:   output.Bytes(),
+	}, nil
+}
+
+func (s *Service) RotatePDF(
+	ctx context.Context,
+	request RotatePDFRequest,
+) (RotatePDFResponse, error) {
+	if request.Rotation != 90 &&
+		request.Rotation != 180 &&
+		request.Rotation != 270 {
+		return RotatePDFResponse{}, fmt.Errorf(
+			"rotation must be 90, 180, or 270 degrees",
+		)
+	}
+
+	rotateCtx, cancel := context.WithTimeout(
+		ctx,
+		s.conversionTimeout,
+	)
+	defer cancel()
+
+	now := time.Now()
+
+	job := Job{
+		ID:        request.JobID,
+		Status:    StatusPending,
+		CreatedAt: now,
+	}
+
+	workspace, err := CreateWorkspace(
+		s.workspaceRoot,
+		job.ID,
+	)
+	if err != nil {
+		return RotatePDFResponse{}, fmt.Errorf(
+			"create workspace: %w",
+			err,
+		)
+	}
+	defer workspace.Cleanup()
+
+	filename := safeFilename(request.Filename)
+
+	if filename == "." || filename == "" {
+		filename = "input.pdf"
+	}
+
+	inputPath := filepath.Join(
+		workspace.Input,
+		filename,
+	)
+
+	if err := writeInputLimited(
+		inputPath,
+		request.Input,
+		s.maxInputSize,
+	); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return RotatePDFResponse{
+			Job: job,
+		}, err
+	}
+
+	outputPath := filepath.Join(
+		workspace.Output,
+		"rotated.pdf",
+	)
+
+	job.Status = StatusProcessing
+
+	startedAt := time.Now()
+	job.StartedAt = &startedAt
+
+	if err := pdf.Rotate(
+		rotateCtx,
+		inputPath,
+		outputPath,
+		request.Rotation,
+	); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return RotatePDFResponse{
+			Job: job,
+		}, fmt.Errorf("rotate PDF: %w", err)
+	}
+
+	outputFile, err := os.Open(outputPath)
+	if err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return RotatePDFResponse{
+			Job: job,
+		}, fmt.Errorf("open rotated PDF: %w", err)
+	}
+	defer outputFile.Close()
+
+	info, err := outputFile.Stat()
+	if err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return RotatePDFResponse{
+			Job: job,
+		}, fmt.Errorf("stat rotated PDF: %w", err)
+	}
+
+	if info.Size() == 0 {
+		err := fmt.Errorf("rotation produced empty output")
+
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return RotatePDFResponse{
+			Job: job,
+		}, err
+	}
+
+	var output bytes.Buffer
+
+	limitedOutput := &limitedWriter{
+		writer: &output,
+		limit:  s.maxOutputSize,
+	}
+
+	if _, err := io.Copy(limitedOutput, outputFile); err != nil {
+		job.Status = StatusFailed
+		job.Error = err.Error()
+
+		return RotatePDFResponse{
+			Job: job,
+		}, fmt.Errorf("read rotated output: %w", err)
+	}
+
+	completedAt := time.Now()
+	job.CompletedAt = &completedAt
+	job.Status = StatusCompleted
+
+	return RotatePDFResponse{
+		Job:      job,
+		Filename: "rotated.pdf",
 		Output:   output.Bytes(),
 	}, nil
 }
