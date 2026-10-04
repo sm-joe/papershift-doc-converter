@@ -3,9 +3,9 @@ package pdf
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
-	"os/exec"
 )
 
 func TestCompress(t *testing.T) {
