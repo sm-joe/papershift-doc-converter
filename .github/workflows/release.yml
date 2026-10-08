@@ -56,13 +56,12 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          no-cache: true
           load: true
           build-args: ${{ matrix.build_args }}
           tags: |
             ${{ matrix.image }}:${{ env.VERSION }}
-          #cache-from: type=gha,scope=${{ matrix.cache_scope }}
-          #cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
 
       - name: Scan Image
         uses: aquasecurity/trivy-action@v0.36.0
