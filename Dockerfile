@@ -17,19 +17,26 @@ RUN CGO_ENABLED=0 GOOS=linux \
     -o /out/papershift-api \
     ./apps/api
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 ENV PAPERSHIFT_ADDR=:8080 \
     PAPERSHIFT_WORK_DIR=/tmp/papershift
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
-        libreoffice libpcre2-8-0 \
+        libreoffice \
+        libpcre2-8-0 \
         ca-certificates \
         curl \
         fonts-dejavu \
-        default-jre libreoffice-java-common \
-        imagemagick librsvg2-bin pandoc poppler-utils ghostscript \
+        default-jre \
+        libreoffice-java-common \
+        imagemagick \
+        librsvg2-bin \
+        pandoc \
+        poppler-utils \
+        ghostscript \
     && rm -rf /var/lib/apt/lists/* \
     && useradd \
         --system \

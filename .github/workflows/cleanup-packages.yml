@@ -1,0 +1,21 @@
+name: Cleanup Old Packages
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Runs weekly on Sundays
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  delete-older-packages:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: ['papershift-doc-converter-api', 'papershift-doc-converter-web']
+    steps:
+      - name: Delete old package versions
+        uses: actions/delete-package-versions@v5
+        with:
+          owner: ${{ github.repository_owner }}
+          package-name: ${{ matrix.package }}
+          package-type: 'container'
+          min-versions-to-keep: 5
+          token: ${{ secrets.DELETE_PACKAGES_TOKEN }}

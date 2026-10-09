@@ -4,42 +4,24 @@ on:
   push:
     branches:
       - main
-      - develop
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - "Dockerfile"
-      - ".dockerignore"
-      - "docker/**"
-      - "apps/api/**"
-      - "apps/web/**"
-      - "engines/**"
-      - "internal/**"
-      - "tests/**"
-      - ".github/workflows/ci.yml"
 
   pull_request:
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - "Dockerfile"
-      - ".dockerignore"
-      - "docker/**"
-      - "apps/api/**"
-      - "apps/web/**"
-      - "engines/**"
-      - "internal/**"
-      - "tests/**"
-      - ".github/workflows/ci.yml"
+    branches:
+      - main
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.27"
+  NODE_VERSION: "24"
+  API_IMAGE: papershift-api:ci
+  WEB_IMAGE: papershift-web:ci
 
 jobs:
   changes:
@@ -50,7 +32,8 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
-      docker: ${{ steps.filter.outputs.docker }}
+      api_image: ${{ steps.filter.outputs.api_image }}
+      web_image: ${{ steps.filter.outputs.web_image }}
       integration: ${{ steps.filter.outputs.integration }}
 
     steps:
@@ -64,29 +47,50 @@ jobs:
         with:
           filters: |
             backend:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Dockerfile'
+              - 'docker/api/**'
+              - 'apps/api/**'
+              - 'engines/**'
+              - 'internal/**'
+
+            frontend:
+              - 'apps/web/**'
+
+            api_image:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'docker/api/**'
               - 'apps/api/**'
               - 'engines/**'
               - 'internal/**'
               - 'go.mod'
               - 'go.sum'
 
-            frontend:
+            web_image:
               - 'apps/web/**'
-
-            docker:
-              - 'Dockerfile'
+              - 'docker/web/**'
               - '.dockerignore'
-              - 'docker/**'
 
             integration:
               - 'tests/**'
-              - '.github/workflows/ci.yml'
+              - 'apps/api/**'
+              - 'apps/api/**'
+              - 'internal/**'
+              - 'Dockerfile'
+              - 'docker/api/**'
+              - 'docker/api/**'
+              - 'go.mod'
+              - 'go.sum'
 
   backend:
-    name: Backend
+    name: Backend Checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: changes
+
     if: needs.changes.outputs.backend == 'true'
 
     steps:
@@ -96,14 +100,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Check Go Formatting
         run: |
           unformatted=$(gofmt -l apps engines internal)
           if [ -n "$unformatted" ]; then
-            echo "The following Go files are not formatted:"
+            echo "Go files need formatting:"
             echo "$unformatted"
             exit 1
           fi
@@ -115,7 +119,7 @@ jobs:
         run: go test ./apps/... ./engines/... ./internal/...
 
   frontend:
-    name: Frontend
+    name: Frontend Checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: changes
@@ -132,7 +136,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
@@ -148,31 +152,13 @@ jobs:
       - name: Run Build
         run: npm run build
 
-  docker:
-    name: Docker & Integration
+  api-image:
+    name: Build and Scan API Image
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs:
-      - changes
-      - backend
-      - frontend
+    needs: changes
 
-    if: |
-      always() &&
-      (
-        needs.backend.result == 'success' ||
-        needs.backend.result == 'skipped'
-      ) &&
-      (
-        needs.frontend.result == 'success' ||
-        needs.frontend.result == 'skipped'
-      ) &&
-      (
-        needs.changes.outputs.backend == 'true' ||
-        needs.changes.outputs.frontend == 'true' ||
-        needs.changes.outputs.docker == 'true' ||
-        needs.changes.outputs.integration == 'true'
-      )
+    if: needs.changes.outputs.api_image == 'true'
 
     permissions:
       contents: read
@@ -191,32 +177,126 @@ jobs:
           context: .
           file: Dockerfile
           load: true
-          tags: papershift-api:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ env.API_IMAGE }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
 
       - name: Scan API Image with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: "v0.75.0"
-          image-ref: papershift-api:ci
+          scanners: vuln
+          image-ref: ${{ env.API_IMAGE }}
           format: sarif
-          output: trivy-results.sarif
+          output: trivy-api.sarif
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Upload API Scan Results
+        if: github.event_name == 'push'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-api.sarif
+          category: trivy-api-container
+
+      - name: Export API Image for Integration
+        if: needs.changes.outputs.integration == 'true'
+        run: docker save "${{ env.API_IMAGE }}" -o "${{ runner.temp }}/api-image.tar"
+
+      - name: Upload API Image Artifact
+        if: needs.changes.outputs.integration == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: papershift-api-image
+          path: ${{ runner.temp }}/api-image.tar
+          retention-days: 1
+          compression-level: 0
+
+  web-image:
+    name: Build and Scan Web Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: changes
+
+    if: needs.changes.outputs.web_image == 'true'
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build Web Image
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/web
+          file: apps/web/Dockerfile
+          load: true
+          tags: ${{ env.WEB_IMAGE }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      - name: Scan Web Image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: "v0.75.0"
+          scanners: vuln
+          image-ref: ${{ env.WEB_IMAGE }}
+          format: sarif
+          output: trivy-web.sarif
           exit-code: "0"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
-      - name: Upload Trivy Results to Code Scanning
+      - name: Upload Web Scan Results
         if: github.event_name == 'push'
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: trivy-results.sarif
-          category: trivy-container
+          sarif_file: trivy-web.sarif
+          category: trivy-web-container
+
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs:
+      - changes
+      - api-image
+      - backend
+
+    if: |
+      always() &&
+      needs.changes.outputs.integration == 'true' &&
+      needs.api-image.result == 'success' &&
+      (needs.backend.result == 'success' ||
+      needs.backend.result == 'skipped')
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download API Image
+        uses: actions/download-artifact@v7
+        with:
+          name: papershift-api-image
+          path: ${{ runner.temp }}/api-image
+
+      - name: Load API Image
+        run: docker load -i "${{ runner.temp }}/api-image/api-image.tar"
 
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Start PaperShift
@@ -233,7 +313,7 @@ jobs:
             --pids-limit 256 \
             --cpus 2.0 \
             --ulimit nofile=4096:8192 \
-            papershift-api:ci
+            "${API_IMAGE}"
 
       - name: Wait for PaperShift
         shell: bash

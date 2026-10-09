@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24-bookworm-slim AS deps
+FROM node:24-trixie-slim AS deps
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ COPY package*.json ./
 RUN npm ci
 
 
-FROM node:24-bookworm-slim AS builder
+FROM node:24-trixie-slim AS builder
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build
 
 
-FROM node:24-bookworm-slim AS runner
+FROM node:24-trixie-slim AS runner
 
 WORKDIR /app
 
@@ -35,9 +35,9 @@ ENV NODE_ENV=production \
 
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends \
-        libpcre2-8-0
-
-RUN rm -rf /usr/local/lib/node_modules/npm \
+        libpcre2-8-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 RUN useradd \

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -247,21 +248,31 @@ func compressImageEntry(
 }
 
 func isSafeArchiveEntryName(name string) bool {
-	clean := filepath.Clean(name)
-
-	if clean == "." || clean == "" {
+	if name == "" {
 		return false
 	}
 
-	if filepath.IsAbs(clean) {
+	if strings.Contains(name, "\x00") {
 		return false
 	}
 
-	if strings.HasPrefix(clean, "..") || strings.Contains(clean, string(filepath.Separator)+".."+string(filepath.Separator)) {
+	name = strings.ReplaceAll(name, `\`, "/")
+
+	if strings.HasPrefix(name, "/") {
 		return false
 	}
 
-	return clean == name
+	clean := path.Clean(name)
+
+	if clean != name {
+		return false
+	}
+
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return false
+	}
+
+	return true
 }
 
 func extractZipEntry(
