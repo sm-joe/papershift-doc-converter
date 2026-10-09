@@ -33,7 +33,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-RUN apt-get update -y \
+RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         libpcre2-8-0 \
     && rm -rf /var/lib/apt/lists/* \
