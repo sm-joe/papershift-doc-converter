@@ -43,8 +43,8 @@ jobs:
             cache_scope: api
 
           - name: web
-            context: apps/web
-            dockerfile: Dockerfile
+            context: .
+            dockerfile: apps/web/Dockerfile
             image: papershift-doc-converter-web
             cache_scope: web
             build_args: |
@@ -73,8 +73,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           load: true
           build-args: ${{ matrix.build_args }}
-          tags: |
-            ${{ matrix.image }}:ci
+          tags: ${{ matrix.image }}:ci
           cache-from: type=gha,scope=${{ matrix.cache_scope }}
           cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
 

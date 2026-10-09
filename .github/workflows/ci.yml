@@ -171,7 +171,7 @@ jobs:
     timeout-minutes: 25
     needs: changes
 
-    if: needs.changes.outputs.api_image == 'true'
+    if: needs.changes.outputs.api_image == 'true' || needs.changes.outputs.integration == 'true'
 
     permissions:
       contents: read
