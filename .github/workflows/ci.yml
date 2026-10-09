@@ -158,7 +158,7 @@ jobs:
     timeout-minutes: 25
     needs: changes
 
-    if: needs.changes.outputs.api_image == 'true' || needs.changes.outputs.integration == 'true' || needs.changes.outputs.ci == 'true'
+    if: needs.changes.outputs.api_image == 'true'
 
     permissions:
       contents: read
@@ -219,7 +219,7 @@ jobs:
     timeout-minutes: 25
     needs: changes
 
-    if: needs.changes.outputs.web_image == 'true' || needs.changes.outputs.ci == 'true'
+    if: needs.changes.outputs.web_image == 'true'
 
     permissions:
       contents: read
