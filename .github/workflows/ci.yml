@@ -249,7 +249,7 @@ jobs:
       - name: Build Web Image
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: apps/web
           file: apps/web/Dockerfile
           load: true
           tags: ${{ env.WEB_IMAGE }}

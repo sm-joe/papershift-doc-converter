@@ -4,7 +4,7 @@ FROM node:24-trixie-slim AS deps
 
 WORKDIR /app
 
-COPY apps/web/package.json apps/web/package-lock.json ./
+COPY package*.json ./
 
 RUN npm ci
 
@@ -14,7 +14,7 @@ FROM node:24-trixie-slim AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY apps/web/ ./
+COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
