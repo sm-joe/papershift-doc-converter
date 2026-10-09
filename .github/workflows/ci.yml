@@ -62,6 +62,7 @@ jobs:
       api_image: ${{ steps.filter.outputs.api_image }}
       web_image: ${{ steps.filter.outputs.web_image }}
       integration: ${{ steps.filter.outputs.integration }}
+      ci: ${{ steps.filter.outputs.ci }}
 
     steps:
 
@@ -93,6 +94,7 @@ jobs:
 
             web_image:
               - 'apps/web/**'
+              - 'apps/web/Dockerfile'
               - 'docker/**'
               - '.dockerignore'
 
@@ -173,7 +175,7 @@ jobs:
     timeout-minutes: 25
     needs: changes
 
-    if: needs.changes.outputs.api_image == 'true' || needs.changes.outputs.integration == 'true'
+    if: needs.changes.outputs.api_image == 'true' || needs.changes.outputs.integration == 'true' || needs.changes.outputs.ci == 'true'
 
     permissions:
       contents: read
@@ -234,7 +236,7 @@ jobs:
     timeout-minutes: 25
     needs: changes
 
-    if: needs.changes.outputs.web_image == 'true'
+    if: needs.changes.outputs.web_image == 'true' || needs.changes.outputs.ci == 'true'
 
     permissions:
       contents: read
