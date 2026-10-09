@@ -4,37 +4,10 @@ on:
   push:
     branches:
       - main
-      - develop
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - "Dockerfile"
-      - ".dockerignore"
-      - "docker/**"
-      - "apps/api/**"
-      - "apps/web/**"
-      - "engines/**"
-      - "internal/**"
-      - "tests/**"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/release.yml"
 
   pull_request:
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - "Dockerfile"
-      - ".dockerignore"
-      - "docker/**"
-      - "apps/api/**"
-      - "apps/web/**"
-      - "engines/**"
-      - "internal/**"
-      - "tests/**"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/release.yml"
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -62,7 +35,6 @@ jobs:
       api_image: ${{ steps.filter.outputs.api_image }}
       web_image: ${{ steps.filter.outputs.web_image }}
       integration: ${{ steps.filter.outputs.integration }}
-      ci: ${{ steps.filter.outputs.ci }}
 
     steps:
 
@@ -78,6 +50,11 @@ jobs:
               - '**/*.go'
               - 'go.mod'
               - 'go.sum'
+              - 'Dockerfile'
+              - 'docker/api/**'
+              - 'apps/api/**'
+              - 'engines/**'
+              - 'internal/**'
 
             frontend:
               - 'apps/web/**'
@@ -85,7 +62,7 @@ jobs:
             api_image:
               - 'Dockerfile'
               - '.dockerignore'
-              - 'docker/**'
+              - 'docker/api/**'
               - 'apps/api/**'
               - 'engines/**'
               - 'internal/**'
@@ -94,13 +71,19 @@ jobs:
 
             web_image:
               - 'apps/web/**'
-              - 'apps/web/Dockerfile'
-              - 'docker/**'
+              - 'docker/web/**'
               - '.dockerignore'
 
             integration:
               - 'tests/**'
-              - '.github/workflows/ci.yml'
+              - 'apps/api/**'
+              - 'apps/api/**'
+              - 'internal/**'
+              - 'Dockerfile'
+              - 'docker/api/**'
+              - 'docker/api/**'
+              - 'go.mod'
+              - 'go.sum'
 
   backend:
     name: Backend Checks
