@@ -43,7 +43,7 @@ jobs:
             cache_scope: api
 
           - name: web
-            context: .
+            context: apps/web
             dockerfile: apps/web/Dockerfile
             image: papershift-doc-converter-web
             cache_scope: web
