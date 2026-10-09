@@ -16,7 +16,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-containers-${{ github.ref }}
+  group: publish-containers-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 env:
@@ -24,13 +24,61 @@ env:
   OWNER: ${{ github.repository_owner }}
 
 jobs:
-  publish:
-    name: Publish ${{ matrix.name }}
+  changes:
+    name: Detect Changed Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect Changed Paths
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          base: ${{ github.event.workflow_run.head_branch }}
+          filters: |
+            api:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'docker/api/**'
+              - 'apps/api/**'
+              - 'engines/**'
+              - 'internal/**'
+              - 'go.mod'
+              - 'go.sum'
+
+            web:
+              - 'apps/web/**'
+              - 'docker/web/**'
+              - '.dockerignore'
+
+  publish-api:
+    name: Publish API Image
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: changes
 
-    if: |
-      github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    if: needs.changes.outputs.api == 'true'
+
+    permissions:
+      contents: read
+      packages: write
 
     strategy:
       fail-fast: false
@@ -55,6 +103,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -66,48 +115,115 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Image
+      - name: Build API Image
         uses: docker/build-push-action@v7
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
+          context: .
+          file: Dockerfile
           load: true
-          build-args: ${{ matrix.build_args }}
-          tags: ${{ matrix.image }}:ci
-          cache-from: type=gha,scope=${{ matrix.cache_scope }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
+          tags: papershift-doc-converter-api:ci
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
 
-      - name: Scan Image with Trivy
+      - name: Scan API Image with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: "v0.75.0"
           scanners: vuln
-          image-ref: ${{ matrix.image }}:ci
+          image-ref: papershift-doc-converter-api:ci
           format: table
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
-      - name: Tag Image
+      - name: Tag API Image
         env:
-          IMAGE: ${{ matrix.image }}
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
-          TARGET="${REGISTRY}/${OWNER}/${IMAGE}"
+          TARGET="${REGISTRY}/${OWNER}/papershift-doc-converter-api"
 
-          docker tag "${IMAGE}:ci" "${TARGET}:${SHA}"
-          docker tag "${IMAGE}:ci" "${TARGET}:latest"
+          docker tag papershift-doc-converter-api:ci "${TARGET}:${SHA}"
+          docker tag papershift-doc-converter-api:ci "${TARGET}:latest"
 
-      - name: Publish Container Package
+      - name: Publish API Image
         env:
-          IMAGE: ${{ matrix.image }}
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
-          TARGET="${REGISTRY}/${OWNER}/${IMAGE}"
+          TARGET="${REGISTRY}/${OWNER}/papershift-doc-converter-api"
 
+          docker push "${TARGET}:${SHA}"
+          docker push "${TARGET}:latest"
+
+  publish-web:
+    name: Publish Web Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: changes
+
+    if: needs.changes.outputs.web == 'true'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Web Image
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/web
+          file: apps/web/Dockerfile
+          load: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:8080
+          tags: papershift-doc-converter-web:ci
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Scan Web Image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: "v0.75.0"
+          scanners: vuln
+          image-ref: papershift-doc-converter-web:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Tag Web Image
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          TARGET="${REGISTRY}/${OWNER}/papershift-doc-converter-web"
+          docker tag papershift-doc-converter-web:ci "${TARGET}:${SHA}"
+          docker tag papershift-doc-converter-web:ci "${TARGET}:latest"
+
+      - name: Publish Web Image
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          TARGET="${REGISTRY}/${OWNER}/papershift-doc-converter-web"
           docker push "${TARGET}:${SHA}"
           docker push "${TARGET}:latest"
