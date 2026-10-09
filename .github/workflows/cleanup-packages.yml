@@ -7,13 +7,15 @@ on:
 jobs:
   delete-older-packages:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: ['papershift-doc-converter-api', 'papershift-doc-converter-web']
     steps:
       - name: Delete old package versions
         uses: actions/delete-package-versions@v5
         with:
-          # Use your custom secret PAT with delete:packages permissions
           owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          package-name: 'your-package-name'
+          package-name: ${{ matrix.package }}
           package-type: 'container'
           min-versions-to-keep: 5
+          token: ${{ secrets.DELETE_PACKAGES_TOKEN }}
