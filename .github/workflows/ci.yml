@@ -18,6 +18,7 @@ on:
       - "internal/**"
       - "tests/**"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/release.yml"
 
   pull_request:
     paths:
@@ -33,6 +34,7 @@ on:
       - "internal/**"
       - "tests/**"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/release.yml"
 
 permissions:
   contents: read
