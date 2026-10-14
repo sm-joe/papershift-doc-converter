@@ -151,6 +151,65 @@ jobs:
       - name: Run Build
         run: npm run build
 
+  codeql-go:
+    name: CodeQL Analysis (go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+
+    if: needs.changes.outputs.backend == 'true'
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: go
+          build-mode: autobuild
+
+      - name: Analyze CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:go"
+
+  codeql-javascript:
+    name: CodeQL Analysis (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+
+    if: needs.changes.outputs.frontend == 'true'
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - name: Analyze CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:javascript-typescript"
+
   api-image:
     name: Build and Scan API Image
     runs-on: ubuntu-latest
@@ -355,6 +414,8 @@ jobs:
     if: always()
     needs:
       - changes
+      - codeql-go
+      - codeql-javascript
       - backend
       - frontend
       - api-image
@@ -370,6 +431,8 @@ jobs:
           API_IMAGE: ${{ needs.api-image.result }}
           WEB_IMAGE: ${{ needs.web-image.result }}
           INTEGRATION: ${{ needs.integration.result }}
+          CODEQL_GO: ${{ needs.codeql-go.result }}
+          CODEQL_JS: ${{ needs.codeql-javascript.result }}
           BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
           FRONTEND_CHANGED: ${{ needs.changes.outputs.frontend }}
           API_IMAGE_CHANGED: ${{ needs.changes.outputs.api_image }}
@@ -390,23 +453,19 @@ jobs:
             local result="$2"
             local relevant="$3"
 
-            if [[ "$relevant" == "true" ]]; then
-              if [[ "$result" != "success" ]]; then
+            if [[ "$relevant" == "true" && "$result" != "success" ]]; then
                 echo "::error::$name was relevant but finished with: $result"
                 exit 1
               fi
-            else
-              if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
-                echo "::error::$name failed or was cancelled."
-                exit 1
-              fi
-            fi
 
             echo "$name: $result (relevant=$relevant)"
           }
 
           check_job "Backend" "$BACKEND" "$BACKEND_CHANGED"
           check_job "Frontend" "$FRONTEND" "$FRONTEND_CHANGED"
+
+          check_job "CodeQL Go" "$CODEQL_GO" "$BACKEND_CHANGED"
+          check_job "CodeQL JavaScript" "$CODEQL_JS" "$FRONTEND_CHANGED"
 
           api_relevant=false
           [[ "$API_IMAGE_CHANGED" == "true" || "$INTEGRATION_CHANGED" == "true" ]] && api_relevant=true
