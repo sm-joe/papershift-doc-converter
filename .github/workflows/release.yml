@@ -37,6 +37,8 @@ jobs:
 
     outputs:
       publish: ${{ steps.validate.outputs.publish }}
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
 
     steps:
       - name: Validate CI Run
@@ -58,6 +60,13 @@ jobs:
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect Changed Paths
         id: filter
@@ -87,7 +96,7 @@ jobs:
     timeout-minutes: 30
     needs: changes
 
-    if: needs.changes.outputs.publish == 'true'
+    if: needs.changes.outputs.publish == 'true' && needs.changes.outputs.api == 'true'
 
     permissions:
       contents: read
@@ -160,7 +169,7 @@ jobs:
     timeout-minutes: 30
     needs: changes
 
-    if: needs.changes.outputs.publish == 'true'
+    if: needs.changes.outputs.publish == 'true' && needs.changes.outputs.web == 'true'
 
     permissions:
       contents: read
