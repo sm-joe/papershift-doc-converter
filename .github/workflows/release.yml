@@ -70,27 +70,39 @@ jobs:
 
       - name: Detect Changed Paths
         id: filter
-        uses: dorny/paths-filter@v4
-        with:
-          base: ${{ github.event.workflow_run.head_sha }}^1
-          ref: ${{ github.event.workflow_run.head_sha }}
-          list-files: none
-          filters: |
-            api:
-              - 'Dockerfile'
-              - '.dockerignore'
-              - 'docker/api/**'
-              - 'apps/api/**'
-              - 'engines/**'
-              - 'internal/**'
-              - 'go.mod'
-              - 'go.sum'
-              - '**/*.go'
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-            web:
-              - 'apps/web/**'
-              - 'docker/web/**'
-              - '.dockerignore'
+          BASE="$(git rev-parse "${SHA}^1")"
+          echo "Comparing ${BASE} to ${SHA}"
+
+          api=false
+          web=false
+
+          while IFS= read -r file; do
+            echo "Changed: $file"
+
+            case "$file" in
+              Dockerfile|.dockerignore|docker/api/*|apps/api/*|engines/*|internal/*|go.mod|go.sum|*.go)
+                api=true
+                ;;
+            esac
+
+            case "$file" in
+              apps/web/*|docker/web/*|.dockerignore)
+                web=true
+                ;;
+            esac
+          done < <(git diff --name-only "$BASE" "$SHA")
+
+          echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+
+          echo "API image changed: $api"
+          echo "Web image changed: $web"
 
   publish-api:
     name: Publish API Image
