@@ -252,7 +252,7 @@ jobs:
     name: Build and Scan API Image
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: [changes, backend]
+    needs: [changes, backend, codeql-go]
 
     if: >-
       always() &&
@@ -263,6 +263,10 @@ jobs:
       (
         needs.backend.result == 'success' ||
         needs.backend.result == 'skipped'
+      ) &&
+      (
+        needs.codeql-go.result == 'success' ||
+        needs.codeql-go.result == 'skipped'
       )
 
     permissions:
@@ -312,13 +316,17 @@ jobs:
     name: Build and Scan Web Image
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: [changes, frontend]
+    needs: [changes, frontend, codeql-javascript]
 
     if: >-
       always() &&
+      needs.changes.result == 'success' &&
       needs.changes.outputs.web_image == 'true' &&
       (
         needs.frontend.result == 'success' || needs.frontend.result == 'skipped'
+      ) &&
+      (
+        needs.codeql-javascript.result == 'success' || needs.codeql-javascript.result == 'skipped'
       )
 
     permissions:
