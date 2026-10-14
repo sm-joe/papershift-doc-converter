@@ -25,7 +25,7 @@ env:
 
 jobs:
   changes:
-    name: Detect Changed Images
+    name: Validate CI Run
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -36,16 +36,28 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository
 
     outputs:
-      api: ${{ steps.filter.outputs.api }}
-      web: ${{ steps.filter.outputs.web }}
+      publish: ${{ steps.validate.outputs.publish }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-          persist-credentials: false
+      - name: Validate CI Run
+        id: validate
+        env:
+          EVENT: ${{ github.event.workflow_run.event }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT" == "push" &&
+                "$BRANCH" == "main" &&
+                "$CONCLUSION" == "success" &&
+                "$HEAD_REPOSITORY" == "$REPOSITORY" ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Detect Changed Paths
         id: filter
@@ -62,6 +74,7 @@ jobs:
               - 'internal/**'
               - 'go.mod'
               - 'go.sum'
+              - '**/*.go'
 
             web:
               - 'apps/web/**'
@@ -74,29 +87,11 @@ jobs:
     timeout-minutes: 30
     needs: changes
 
-    if: needs.changes.outputs.api == 'true'
+    if: needs.changes.outputs.publish == 'true'
 
     permissions:
       contents: read
       packages: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: api
-            context: .
-            dockerfile: Dockerfile
-            image: papershift-doc-converter-api
-            cache_scope: api
-
-          - name: web
-            context: apps/web
-            dockerfile: apps/web/Dockerfile
-            image: papershift-doc-converter-web
-            cache_scope: web
-            build_args: |
-              NEXT_PUBLIC_API_URL=http://localhost:8080
 
     steps:
       - name: Checkout
@@ -165,7 +160,7 @@ jobs:
     timeout-minutes: 30
     needs: changes
 
-    if: needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.publish == 'true'
 
     permissions:
       contents: read
