@@ -8,9 +8,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-	"path/filepath"
 )
 
 const apiURL = "http://localhost:8080"
@@ -52,6 +52,7 @@ startxref
 453
 %%EOF
 `
+
 var (
 	docxFixture = mustReadFixture("sample.docx")
 	xlsxFixture = mustReadFixture("sample.xlsx")
@@ -196,9 +197,9 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 
 func TestPDFConversions(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		check      func(t *testing.T, data []byte)
+		name   string
+		output string
+		check  func(t *testing.T, data []byte)
 	}{
 		{
 			name:   "PDF to TXT",
@@ -300,11 +301,11 @@ func TestPDFConversions(t *testing.T) {
 
 func TestLibreOfficeConversions(t *testing.T) {
 	tests := []struct {
-		name       string
-		filename   string
-		input      []byte
-		output     string
-		signature  []byte
+		name      string
+		filename  string
+		input     []byte
+		output    string
+		signature []byte
 	}{
 		{
 			name:      "DOCX to PDF",

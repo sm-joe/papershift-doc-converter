@@ -33,6 +33,7 @@ jobs:
       api_image: ${{ steps.filter.outputs.api_image }}
       web_image: ${{ steps.filter.outputs.web_image }}
       integration: ${{ steps.filter.outputs.integration }}
+      dependencies: ${{ steps.filter.outputs.dependencies }}
 
     steps:
 
@@ -80,6 +81,19 @@ jobs:
               - 'go.mod'
               - 'go.sum'
 
+            dependencies:
+              - '**/go.mod'
+              - '**/go.sum'
+              - '**/package.json'
+              - '**/package-lock.json'
+              - '**/pnpm-lock.yaml'
+              - '**/yarn.lock'
+              - '**/Cargo.toml'
+              - '**/Cargo.lock'
+              - '**/requirements*.txt'
+              - '**/poetry.lock'
+              - '**/pyproject.toml'
+
   backend:
     name: Backend Checks
     runs-on: ubuntu-latest
@@ -99,9 +113,13 @@ jobs:
           cache: true
 
       - name: Check Go Formatting
+        shell: bash
         run: |
-          unformatted=$(gofmt -l apps engines internal)
-          if [ -n "$unformatted" ]; then
+          set -euo pipefail
+
+          unformatted=$(git ls-files -z '*.go' | xargs -0 -r gofmt -l)
+
+          if [[ -n "$unformatted" ]]; then
             echo "Go files need formatting:"
             echo "$unformatted"
             exit 1
@@ -147,6 +165,89 @@ jobs:
       - name: Run Build
         run: npm run build
 
+  codeql-go:
+    name: CodeQL Analysis (go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+
+    if: needs.changes.outputs.backend == 'true'
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: go
+          build-mode: autobuild
+
+      - name: Analyze CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:go"
+
+  codeql-javascript:
+    name: CodeQL Analysis (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+
+    if: needs.changes.outputs.frontend == 'true'
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - name: Analyze CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:javascript-typescript"
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: changes
+
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.changes.outputs.dependencies == 'true'
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, GPL-3.0
+
   api-image:
     name: Build and Scan API Image
     runs-on: ubuntu-latest
@@ -179,6 +280,7 @@ jobs:
           cache-to: type=gha,scope=api,mode=max
 
       - name: Scan API Image with Trivy
+        id: trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: "v0.75.0"
@@ -191,7 +293,10 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Upload API Scan Results
-        if: github.event_name == 'push'
+        if: >-
+          always() &&
+          github.event_name == 'push' &&
+          steps.trivy.outcome != 'skipped'
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-api.sarif
@@ -201,9 +306,14 @@ jobs:
     name: Build and Scan Web Image
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: changes
+    needs: [changes, frontend]
 
-    if: needs.changes.outputs.web_image == 'true'
+    if: >-
+      always() &&
+      needs.changes.outputs.web_image == 'true' &&
+      (
+        needs.frontend.result == 'success' || needs.frontend.result == 'skipped'
+      )
 
     permissions:
       contents: read
@@ -228,6 +338,7 @@ jobs:
           cache-to: type=gha,scope=web,mode=max
 
       - name: Scan Web Image with Trivy
+        id: trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: "v0.75.0"
@@ -235,12 +346,15 @@ jobs:
           image-ref: ${{ env.WEB_IMAGE }}
           format: sarif
           output: trivy-web.sarif
-          exit-code: "0"
+          exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
       - name: Upload Web Scan Results
-        if: github.event_name == 'push'
+        if: >-
+          always() &&
+          github.event_name == 'push' &&
+          steps.trivy.outcome != 'skipped'
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-web.sarif
@@ -331,3 +445,94 @@ jobs:
       - name: Stop PaperShift
         if: always()
         run: docker rm -f papershift-integration 2>/dev/null || true
+
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - changes
+      - codeql-go
+      - codeql-javascript
+      - backend
+      - frontend
+      - api-image
+      - web-image
+      - integration
+      - dependency-review
+
+    steps:
+      - name: Validate CI results
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+
+          CHANGES: ${{ needs.changes.result }}
+
+          BACKEND: ${{ needs.backend.result }}
+          FRONTEND: ${{ needs.frontend.result }}
+
+          CODEQL_GO: ${{ needs.codeql-go.result }}
+          CODEQL_JS: ${{ needs.codeql-javascript.result }}
+
+          DEPENDENCY_REVIEW: ${{ needs.dependency-review.result }}
+
+          API_IMAGE: ${{ needs.api-image.result }}
+          WEB_IMAGE: ${{ needs.web-image.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+
+          BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
+          FRONTEND_CHANGED: ${{ needs.changes.outputs.frontend }}
+          DEPENDENCIES_CHANGED: ${{ needs.changes.outputs.dependencies }}
+          API_IMAGE_CHANGED: ${{ needs.changes.outputs.api_image }}
+          WEB_IMAGE_CHANGED: ${{ needs.changes.outputs.web_image }}
+          INTEGRATION_CHANGED: ${{ needs.changes.outputs.integration }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Change detection must always succeed.
+          if [[ "$CHANGES" != "success" ]]; then
+            echo "::error::Change detection did not succeed."
+            exit 1
+          fi
+
+          check_job() {
+            local name="$1"
+            local result="$2"
+            local relevant="$3"
+
+            if [[ "$relevant" == "true" && "$result" != "success" ]]; then
+                echo "::error::$name was relevant but finished with: $result"
+                exit 1
+              fi
+
+            echo "$name: $result (relevant=$relevant)"
+          }
+
+          check_job "Backend" "$BACKEND" "$BACKEND_CHANGED"
+          check_job "Frontend" "$FRONTEND" "$FRONTEND_CHANGED"
+
+          check_job "CodeQL Go" "$CODEQL_GO" "$BACKEND_CHANGED"
+          check_job "CodeQL JavaScript" "$CODEQL_JS" "$FRONTEND_CHANGED"
+
+          dependency_review_relevant=false
+          if [[ "$EVENT_NAME" == "pull_request" && "$DEPENDENCIES_CHANGED" == "true" ]]; then
+            dependency_review_relevant=true
+          fi
+
+          check_job "Dependency Review" "$DEPENDENCY_REVIEW" "$dependency_review_relevant"
+
+          api_relevant=false
+          [[ "$API_IMAGE_CHANGED" == "true" || "$INTEGRATION_CHANGED" == "true" ]] && api_relevant=true
+
+          check_job "API image" "$API_IMAGE" "$api_relevant"
+
+          web_relevant=false
+          [[ "$WEB_IMAGE_CHANGED" == "true" ]] && web_relevant=true
+
+          check_job "Web image" "$WEB_IMAGE" "$web_relevant"
+
+          check_job "Integration tests" "$INTEGRATION" "$INTEGRATION_CHANGED"
+
+          echo "All applicable CI checks passed."
