@@ -51,7 +51,8 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v4
         with:
-          base: ${{ github.event.workflow_run.head_branch }}
+          base: ${{ github.event.workflow_run.head_sha }}^
+          ref: ${{ github.event.workflow_run.head_sha }}
           filters: |
             api:
               - 'Dockerfile'
