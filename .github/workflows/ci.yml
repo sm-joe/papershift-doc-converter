@@ -201,7 +201,7 @@ jobs:
     name: Build and Scan Web Image
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: changes
+    needs: [changes, frontend]
 
     if: needs.changes.outputs.web_image == 'true'
 
