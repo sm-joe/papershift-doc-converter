@@ -348,3 +348,74 @@ jobs:
       - name: Stop PaperShift
         if: always()
         run: docker rm -f papershift-integration 2>/dev/null || true
+
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - changes
+      - backend
+      - frontend
+      - api-image
+      - web-image
+      - integration
+
+    steps:
+      - name: Validate CI results
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          BACKEND: ${{ needs.backend.result }}
+          FRONTEND: ${{ needs.frontend.result }}
+          API_IMAGE: ${{ needs.api-image.result }}
+          WEB_IMAGE: ${{ needs.web-image.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+          BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
+          FRONTEND_CHANGED: ${{ needs.changes.outputs.frontend }}
+          API_IMAGE_CHANGED: ${{ needs.changes.outputs.api_image }}
+          WEB_IMAGE_CHANGED: ${{ needs.changes.outputs.web_image }}
+          INTEGRATION_CHANGED: ${{ needs.changes.outputs.integration }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Change detection must always succeed.
+          if [[ "$CHANGES" != "success" ]]; then
+            echo "::error::Change detection did not succeed."
+            exit 1
+          fi
+
+          check_job() {
+            local name="$1"
+            local result="$2"
+            local relevant="$3"
+
+            if [[ "$relevant" == "true" ]]; then
+              if [[ "$result" != "success" ]]; then
+                echo "::error::$name was relevant but finished with: $result"
+                exit 1
+              fi
+            else
+              if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+                echo "::error::$name failed or was cancelled."
+                exit 1
+              fi
+            fi
+
+            echo "$name: $result (relevant=$relevant)"
+          }
+
+          check_job "Backend" "$BACKEND" "$BACKEND_CHANGED"
+          check_job "Frontend" "$FRONTEND" "$FRONTEND_CHANGED"
+
+          api_relevant=false
+          [[ "$API_IMAGE_CHANGED" == "true" || "$INTEGRATION_CHANGED" == "true" ]] && api_relevant=true
+          check_job "API image" "$API_IMAGE" "$api_relevant"
+
+          web_relevant=false
+          [[ "$WEB_IMAGE_CHANGED" == "true" ]] && web_relevant=true
+          check_job "Web image" "$WEB_IMAGE" "$web_relevant"
+
+          check_job "Integration tests" "$INTEGRATION" "$INTEGRATION_CHANGED"
+
+          echo "All applicable CI checks passed."
