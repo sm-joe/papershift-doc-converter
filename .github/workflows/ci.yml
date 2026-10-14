@@ -33,6 +33,7 @@ jobs:
       api_image: ${{ steps.filter.outputs.api_image }}
       web_image: ${{ steps.filter.outputs.web_image }}
       integration: ${{ steps.filter.outputs.integration }}
+      dependencies: ${{ steps.filter.outputs.dependencies }}
 
     steps:
 
@@ -79,6 +80,19 @@ jobs:
               - 'docker/api/**'
               - 'go.mod'
               - 'go.sum'
+
+            dependencies:
+              - '**/go.mod'
+              - '**/go.sum'
+              - '**/package.json'
+              - '**/package-lock.json'
+              - '**/pnpm-lock.yaml'
+              - '**/yarn.lock'
+              - '**/Cargo.toml'
+              - '**/Cargo.lock'
+              - '**/requirements*.txt'
+              - '**/poetry.lock'
+              - '**/pyproject.toml'
 
   backend:
     name: Backend Checks
@@ -210,15 +224,50 @@ jobs:
         with:
           category: "/language:javascript-typescript"
 
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: changes
+
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.changes.outputs.dependencies == 'true'
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, GPL-3.0
+
   api-image:
     name: Build and Scan API Image
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: changes
+    needs: [changes, backend, codeql-go]
 
     if: >-
-      needs.changes.outputs.api_image == 'true' ||
-      needs.changes.outputs.integration == 'true'
+      always() &&
+      (
+        needs.changes.outputs.api_image == 'true' ||
+        needs.changes.outputs.integration == 'true'
+      ) &&
+      (
+        needs.backend.result == 'success' ||
+        needs.backend.result == 'skipped'
+      ) &&
+      (
+        needs.codeql-go.result == 'success' ||
+        needs.codeql-go.result == 'skipped'
+      )
 
     permissions:
       contents: read
@@ -245,7 +294,6 @@ jobs:
         id: trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          version: "v0.75.0"
           scanners: vuln
           image-ref: ${{ env.API_IMAGE }}
           format: sarif
@@ -268,13 +316,17 @@ jobs:
     name: Build and Scan Web Image
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: [changes, frontend]
+    needs: [changes, frontend, codeql-javascript]
 
     if: >-
       always() &&
+      needs.changes.result == 'success' &&
       needs.changes.outputs.web_image == 'true' &&
       (
         needs.frontend.result == 'success' || needs.frontend.result == 'skipped'
+      ) &&
+      (
+        needs.codeql-javascript.result == 'success' || needs.codeql-javascript.result == 'skipped'
       )
 
     permissions:
@@ -303,7 +355,6 @@ jobs:
         id: trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          version: "v0.75.0"
           scanners: vuln
           image-ref: ${{ env.WEB_IMAGE }}
           format: sarif
@@ -421,23 +472,34 @@ jobs:
       - api-image
       - web-image
       - integration
+      - dependency-review
 
     steps:
       - name: Validate CI results
         env:
+          EVENT_NAME: ${{ github.event_name }}
+
           CHANGES: ${{ needs.changes.result }}
+
           BACKEND: ${{ needs.backend.result }}
           FRONTEND: ${{ needs.frontend.result }}
+
+          CODEQL_GO: ${{ needs.codeql-go.result }}
+          CODEQL_JS: ${{ needs.codeql-javascript.result }}
+
+          DEPENDENCY_REVIEW: ${{ needs.dependency-review.result }}
+
           API_IMAGE: ${{ needs.api-image.result }}
           WEB_IMAGE: ${{ needs.web-image.result }}
           INTEGRATION: ${{ needs.integration.result }}
-          CODEQL_GO: ${{ needs.codeql-go.result }}
-          CODEQL_JS: ${{ needs.codeql-javascript.result }}
+
           BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
           FRONTEND_CHANGED: ${{ needs.changes.outputs.frontend }}
+          DEPENDENCIES_CHANGED: ${{ needs.changes.outputs.dependencies }}
           API_IMAGE_CHANGED: ${{ needs.changes.outputs.api_image }}
           WEB_IMAGE_CHANGED: ${{ needs.changes.outputs.web_image }}
           INTEGRATION_CHANGED: ${{ needs.changes.outputs.integration }}
+
         shell: bash
         run: |
           set -euo pipefail
@@ -467,12 +529,21 @@ jobs:
           check_job "CodeQL Go" "$CODEQL_GO" "$BACKEND_CHANGED"
           check_job "CodeQL JavaScript" "$CODEQL_JS" "$FRONTEND_CHANGED"
 
+          dependency_review_relevant=false
+          if [[ "$EVENT_NAME" == "pull_request" && "$DEPENDENCIES_CHANGED" == "true" ]]; then
+            dependency_review_relevant=true
+          fi
+
+          check_job "Dependency Review" "$DEPENDENCY_REVIEW" "$dependency_review_relevant"
+
           api_relevant=false
           [[ "$API_IMAGE_CHANGED" == "true" || "$INTEGRATION_CHANGED" == "true" ]] && api_relevant=true
+
           check_job "API image" "$API_IMAGE" "$api_relevant"
 
           web_relevant=false
           [[ "$WEB_IMAGE_CHANGED" == "true" ]] && web_relevant=true
+
           check_job "Web image" "$WEB_IMAGE" "$web_relevant"
 
           check_job "Integration tests" "$INTEGRATION" "$INTEGRATION_CHANGED"
