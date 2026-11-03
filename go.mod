@@ -2,7 +2,7 @@ module github.com/sm-joe/papershift-doc-converter
 
 go 1.27.0
 
-require github.com/pdfcpu/pdfcpu v0.16.3
+require github.com/pdfcpu/pdfcpu v0.16.4
 
 require (
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
